@@ -7,11 +7,16 @@ export const colorsOf = (people: Person[], light: boolean) => people.filter((p) 
 
 const grad = (cols: string[], dir = '') => `linear-gradient(${dir}${(cols.length === 1 ? [cols[0], cols[0]] : cols).join(',')})`;
 
-/** Farget strek under ordene (2. stemme). */
+/** Farget strek under ordene (2. stemme). Flere på 2. stemme gir én strek hver, stablet under hverandre. */
 export function underlineStyle(harmony: Person[], light: boolean): string {
   const c = colorsOf(harmony, light);
   if (!c.length) return 'text-decoration:underline;text-underline-offset:0.18em';
-  return `background-image:${grad(c, '90deg,')};background-size:100% 0.11em;background-position:0 100%;background-repeat:no-repeat;padding-bottom:0.06em`;
+  const h = 0.1; // tykkelse (em)
+  const gap = 0.06;
+  const layers = c.map((col) => `linear-gradient(${col},${col})`).join(',');
+  const pos = c.map((_, i) => `0 calc(100% - ${(i * (h + gap)).toFixed(2)}em)`).join(',');
+  const pad = (0.06 + (c.length - 1) * (h + gap)).toFixed(2);
+  return `background-image:${layers};background-size:100% ${h}em;background-position:${pos};background-repeat:no-repeat;padding-bottom:${pad}em`;
 }
 
 /** Kor: i korist-fargen (fargeovergang når flere korer sammen). */

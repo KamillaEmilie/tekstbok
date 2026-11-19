@@ -119,7 +119,7 @@
 
 <style>
   .lyr {
-    line-height: 1.3;
+    line-height: 1.38;
     overflow-wrap: break-word;
   }
   .sec {

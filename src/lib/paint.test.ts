@@ -95,3 +95,22 @@ describe('solo med 2. stemme på samme ord', () => {
     expect(flattenSectionWho('[Bro | HV2 / HV]\nen', r, singers, 'duett')).toBe('[Bro]\n{HV2/HV: en}');
   });
 });
+
+describe('flere på 2. stemme', () => {
+  it('Kamilla og så Leif på samme ord gir begge; samme pensel fjerner bare den ene', () => {
+    let line = 'jeg står her';
+    line = paintWord(line, 1, { code: 'K1', harm: true }, roles, singers, 'koring');
+    line = paintWord(line, 1, { code: 'K2', harm: true }, roles, singers, 'koring');
+    expect(line).toBe('jeg {/K1+K2: står} her');
+    line = paintWord(line, 1, { code: 'K1', harm: true }, roles, singers, 'koring');
+    expect(line).toBe('jeg {/K2: står} her');
+    line = paintWord(line, 1, { code: 'K2', harm: true }, roles, singers, 'koring');
+    expect(line).toBe('jeg står her');
+  });
+  it('solo med to på 2. stemme', () => {
+    let line = '{HV2: ord}';
+    line = paintWord(line, 0, { code: 'HV', harm: true }, { hv: 'k', hv2: 's', k1: 'l' }, singers, 'duett');
+    line = paintWord(line, 0, { code: 'K1', harm: true }, { hv: 'k', hv2: 's', k1: 'l' }, singers, 'duett');
+    expect(line).toBe('{HV2/HV+K1: ord}');
+  });
+});

@@ -72,6 +72,18 @@ export function tokensToLine(toks: Token[]): string {
 const combine = (base: Paint, harm: Paint): Paint => ({ code: `${base.code}/${harm.code}`, harm: false });
 const splitCombined = (p: Paint) => (p.harm || !p.code.includes('/') ? null : p.code.split('/').map((x) => x.trim()));
 
+const ORDER = ['HV', 'HV1', 'HV2', 'K1', 'K2'];
+const sortCodes = (c: string[]) =>
+  [...new Set(c)].sort((a, b) => (ORDER.indexOf(a.toUpperCase()) + 1 || 99) - (ORDER.indexOf(b.toUpperCase()) + 1 || 99));
+/** Legger til eller fjerner personene i «add» fra «K1+K2»-lista. Tom liste → ''. */
+function toggleCodes(have: string, add: string): string {
+  const cur = have.split('+').map((x) => x.trim()).filter(Boolean);
+  const adds = add.split('+').map((x) => x.trim()).filter(Boolean);
+  const allThere = adds.every((a) => cur.some((c) => c.toUpperCase() === a.toUpperCase()));
+  const next = allThere ? cur.filter((c) => !adds.some((a) => a.toUpperCase() === c.toUpperCase())) : [...cur, ...adds];
+  return sortCodes(next).join('+');
+}
+
 /** Maler ett ord: samme pensel en gang til (eller viskelær) fjerner malingen. */
 export function paintWord(line: string, index: number, pen: Paint | null, roles: Roles, singers: Singer[], mode?: VocalMode): string {
   const toks = lineToTokens(line, roles, singers, mode);
@@ -85,8 +97,14 @@ export function paintWord(line: string, index: number, pen: Paint | null, roles:
   const cur = toks[index].paint;
   const parts = cur && splitCombined(cur);
   let next: Paint | null;
-  if (pen?.harm && parts && parts[1] === pen.code) next = { code: parts[0], harm: false }; // fjern 2. stemmen igjen
-  else if (pen?.harm && cur && !cur.harm && cur.code && !parts) next = combine(cur, pen); // legg 2. stemme på en solo
+  if (pen?.harm && cur?.harm) {
+    // Flere på 2. stemme: legg til eller fjern denne personen
+    const set = toggleCodes(cur.code, pen.code);
+    next = set ? { code: set, harm: true } : null;
+  } else if (pen?.harm && parts) {
+    const set = toggleCodes(parts[1], pen.code);
+    next = set ? { code: `${parts[0]}/${set}`, harm: false } : { code: parts[0], harm: false };
+  } else if (pen?.harm && cur && !cur.harm && cur.code) next = combine(cur, pen); // legg 2. stemme på en solo
   else next = pen && !samePaint(cur, pen) ? pen : null;
   toks[index] = { ...toks[index], paint: next };
   return tokensToLine(toks);
