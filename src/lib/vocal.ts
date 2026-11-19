@@ -30,3 +30,15 @@ export function defaultTogether(mode: VocalMode | undefined, roles: Partial<Reco
   if (mode !== 'duett' || !roles.hv || !roles.hv2) return null;
   return resolveWho('HV+HV2', roles, singers);
 }
+
+/** Korte merker for vokalistene: forbokstav, eller to bokstaver hvis flere starter likt. */
+export function singerInitials(singers: Singer[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const first = (s: Singer) => (s.name.trim()[0] ?? '?').toUpperCase();
+  for (const s of singers) {
+    const clash = singers.some((o) => o.id !== s.id && first(o) === first(s));
+    const n = s.name.trim();
+    out.set(s.id, clash ? n.slice(0, 2).charAt(0).toUpperCase() + n.slice(1, 2).toLowerCase() : first(s));
+  }
+  return out;
+}

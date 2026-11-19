@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { convertPrototype, makeBundle, mergeBundle, summarize, validateBundle } from './io';
+import { singerInitials } from './vocal';
 import { describeSet, durationSec, formatTotal, setSummaries, type Singer, type Song } from './types';
 
 const song = (id: string, updatedAt: number, title = id): Song => ({ id, title, mode: 'solo', layout: 'scroll', text: 'la la', updatedAt });
@@ -92,5 +93,16 @@ describe('sett', () => {
     ]);
     expect(describeSet(sets[0])).toBe('2 låter · ca. 7 min');
     expect(describeSet(sets[1])).toBe('2 låter · ca. 3 min · 1 uten tid');
+  });
+});
+
+describe('forbokstaver', () => {
+  it('én bokstav, eller to når flere starter likt', () => {
+    const m = singerInitials([
+      { id: 'a', name: 'Siri', color: '' },
+      { id: 'b', name: 'Kamilla', color: '' },
+      { id: 'c', name: 'Sondre', color: '' },
+    ]);
+    expect([m.get('a'), m.get('b'), m.get('c')]).toEqual(['Si', 'K', 'So']);
   });
 });

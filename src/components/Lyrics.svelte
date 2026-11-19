@@ -2,7 +2,7 @@
   // Fire regler: alene = vokalistens farge · sammen = hvit + farget strek til venstre ·
   // 2. stemme = farget strek under · bare kor = til høyre i korist-fargen.
   import { parseSong, personColor, vocalKind, type Part, type Person, type Who } from '../lib/parser';
-  import { barStyle, colorsOf, defaultTogether, korStyle, underlineStyle } from '../lib/vocal';
+  import { barStyle, colorsOf, defaultTogether, korStyle, singerInitials, underlineStyle } from '../lib/vocal';
   import { activeRoles, type Singer, type Song } from '../lib/types';
 
   let {
@@ -18,7 +18,9 @@
   const kind = (who: Who | null) => vocalKind(who, song.mode, roles);
 
   type Seg = { text: string; style: string };
-  type View = { color: string | null; bar: string | null; right: boolean; main: Seg[]; side: Seg[] };
+  /** solo = hvem som synger hele linjen alene (for forbokstaven), ellers null. */
+  type View = { color: string | null; bar: string | null; right: boolean; main: Seg[]; side: Seg[]; solo: Person | null };
+  const initials = $derived(singerInitials(singers));
 
   /** Regner ut hvordan én linje skal se ut. */
   function lineView(parts: Part[], lineWho: Who | null, secWho: Who | null): View {
@@ -32,6 +34,17 @@
     const baseUl = base?.harmony?.length ? underlineStyle(base.harmony, light) : '';
     const main: Seg[] = [];
     const side: Seg[] = [];
+    // Synger én person alene hele linjen? (malt solo på alle ord, eller hele linjen/delen er solo)
+    const soloIds = new Set<string>();
+    let notSolo = false;
+    for (const p of parts) {
+      if (!p.text.trim()) continue;
+      const who = p.who ?? base;
+      const k = kind(who);
+      if (k === 'solo' && who!.people[0].id) soloIds.add(who!.people[0].id);
+      else notSolo = true;
+    }
+    const soloPerson = !notSolo && soloIds.size === 1 ? (singers.find((s) => soloIds.has(s.id)) ?? null) : null;
     for (const p of parts) {
       const k = kind(p.who);
       const ul = k !== 'harm' && p.who?.harmony?.length ? ';' + underlineStyle(p.who.harmony, light) : '';
@@ -46,9 +59,16 @@
     // Hele linjen er kor (f.eks. «(K1+K2) Shoot me»): flytt til høyre.
     if (bk === 'kor') {
       const st = korStyle(base!.people, light) + ';font-style:italic;font-weight:700';
-      return { color: null, bar: null, right: true, main: [], side: [...main.map((m) => ({ text: m.text, style: m.style || st })), ...side] };
+      return { color: null, bar: null, right: true, main: [], side: [...main.map((m) => ({ text: m.text, style: m.style || st })), ...side], solo: null };
     }
-    return { color, bar: barStyle([...bars]), right: !main.some((m) => m.text.trim()) && side.length > 0, main, side };
+    return {
+      color,
+      bar: barStyle([...bars]),
+      right: !main.some((m) => m.text.trim()) && side.length > 0,
+      main,
+      side,
+      solo: soloPerson ? { id: soloPerson.id, name: soloPerson.name, color: soloPerson.color } : null,
+    };
   }
 
   const names = (people: Person[]) => people;
@@ -56,6 +76,7 @@
 
 <div class="lyr" bind:this={el}>
   {#each parsed.sections as sec}
+    {@const views = sec.lines.map((ln) => lineView(ln.parts, ln.who, sec.who))}
     <section class="sec" class:chorus={sec.chorus}>
       {#if sec.label || (sec.who && kind(sec.who) !== 'none')}
         <div class="lbl">
@@ -69,8 +90,9 @@
             >{/if}
         </div>
       {/if}
-      {#each sec.lines as ln}
-        {@const v = lineView(ln.parts, ln.who, sec.who)}
+      {#each sec.lines as ln, li}
+        {@const v = views[li]}
+        {@const badge = v.solo && v.solo.id !== views[li - 1]?.solo?.id ? v.solo : null}
         <div
           class="ln"
           class:rep={ln.repeated}
@@ -81,7 +103,10 @@
           style:color={v.color}
           style:background-image={v.bar}
         >
-          {#if !v.right}<span class="main">{#each v.main as m}{#if m.style}<span class="seg" style={m.style}>{m.text}</span>{:else}{m.text}{/if}{/each}</span>{/if}{#if v.side.length}<span
+          {#if !v.right}<span class="main"
+              >{#if badge}<span class="badge" style:color={badge.color ? personColor(badge.color, light) : null}
+                  >{initials.get(badge.id!) ?? badge.name[0]}</span
+                >{/if}{#each v.main as m}{#if m.style}<span class="seg" style={m.style}>{m.text}</span>{:else}{m.text}{/if}{/each}</span>{/if}{#if v.side.length}<span
               class="side">{#each v.side as m, i}{#if i > 0}{' '}{/if}<span class="seg" style={m.style}>{m.text}</span>{/each}</span
             >{/if}
         </div>
@@ -121,9 +146,10 @@
     color: var(--muted);
   }
   .ln {
+    position: relative;
     background-size: 5px 100%;
     background-repeat: no-repeat;
-    padding-left: 0.55em;
+    padding-left: 0.85em;
   }
   .ln.greybar {
     background-image: linear-gradient(var(--muted), var(--muted));
@@ -154,6 +180,16 @@
   .seg {
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;
+  }
+  /* Forbokstav i venstremargen, så teksten står på linje med resten */
+  .badge {
+    position: absolute;
+    left: 0;
+    top: 0.2em;
+    font-size: 0.55em;
+    font-weight: 700;
+    line-height: 1.6;
+    font-style: normal;
   }
   .none {
     color: var(--muted);
