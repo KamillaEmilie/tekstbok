@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { flushSync, onDestroy } from 'svelte';
   import { store, setlistById, saveSetlist, deleteSetlist, songById } from '../lib/store.svelte';
   import { go } from '../lib/router.svelte';
   import { toast, undoable } from '../lib/toast.svelte';
@@ -54,36 +55,88 @@
     l.songIds = ids;
   }
 
-  // ---- Dra for å endre rekkefølge (pekerhendelser virker med finger på iPad) ----
+  // ---- Dra for å endre rekkefølge ----
+  // Lytter på hele vinduet (ikke på håndtaket): når radene byttes om, flyttes elementene i DOM,
+  // og da mister iPad «grepet» (pointer capture) hvis lytterne sitter på selve håndtaket.
   let listEl = $state<HTMLElement>();
   let dragIdx = $state<number | null>(null);
-  function down(e: PointerEvent, i: number) {
-    e.preventDefault();
-    dragIdx = i;
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
-  }
-  function moveDrag(e: PointerEvent) {
+  let pointerId: number | null = null;
+  let lastY = 0;
+  let scrollTimer: ReturnType<typeof setInterval> | undefined;
+  let scroller: HTMLElement | null = null;
+
+  const mid = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    return r.top + r.height / 2;
+  };
+
+  /** Flytter raden ett hakk om gangen så lenge fingeren er forbi midten av naboraden. */
+  function reorder() {
     if (dragIdx === null || !listEl) return;
-    const rows = [...listEl.querySelectorAll<HTMLElement>('.srow')];
-    let target = rows.length - 1;
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i].getBoundingClientRect();
-      if (e.clientY < r.top + r.height / 2) {
-        target = i;
-        break;
+    let idx = dragIdx;
+    for (let guard = 0; guard < 50; guard++) {
+      const rows = listEl.querySelectorAll('.srow');
+      const prev = rows[idx - 1];
+      const next = rows[idx + 1];
+      let to = idx;
+      if (prev && lastY < mid(prev)) to = idx - 1;
+      else if (next && lastY > mid(next)) to = idx + 1;
+      if (to === idx) return;
+      move(idx, to);
+      dragIdx = idx = to;
+      flushSync(); // oppdater DOM før neste måling
+    }
+  }
+
+  /** Scroller lista når fingeren er nær kanten, så man kan dra forbi det som vises. */
+  function autoScroll() {
+    if (dragIdx === null) return;
+    if (scroller) {
+      const r = scroller.getBoundingClientRect();
+      const zone = 80;
+      let dy = 0;
+      if (lastY < r.top + zone) dy = -Math.ceil((r.top + zone - lastY) / 6);
+      else if (lastY > r.bottom - zone) dy = Math.ceil((lastY - (r.bottom - zone)) / 6);
+      if (dy) {
+        scroller.scrollTop += dy;
+        reorder();
       }
     }
-    if (target !== dragIdx) {
-      move(dragIdx, target);
-      dragIdx = target;
-    }
   }
-  function up() {
+
+  function onMove(e: PointerEvent) {
+    if (e.pointerId !== pointerId) return;
+    e.preventDefault();
+    lastY = e.clientY;
+    reorder();
+  }
+
+  function down(e: PointerEvent, i: number) {
+    if (dragIdx !== null) return;
+    e.preventDefault();
+    dragIdx = i;
+    pointerId = e.pointerId;
+    lastY = e.clientY;
+    scroller = listEl?.closest('main') ?? null;
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    scrollTimer = setInterval(autoScroll, 16);
+  }
+
+  function endDrag(e?: PointerEvent) {
+    if (e && e.pointerId !== pointerId) return;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', endDrag);
+    window.removeEventListener('pointercancel', endDrag);
+    clearInterval(scrollTimer);
+    pointerId = null;
     if (dragIdx === null || !l) return;
     dragIdx = null;
     checks = null;
     saveSetlist(l, true);
   }
+  onDestroy(() => endDrag());
 
   async function runCheck() {
     if (!l) return;
@@ -196,10 +249,7 @@
             role="button"
             tabindex="-1"
             aria-label="Dra for å flytte"
-            onpointerdown={(e) => down(e, i)}
-            onpointermove={moveDrag}
-            onpointerup={up}
-            onpointercancel={up}>☰</span
+            onpointerdown={(e) => down(e, i)}>☰</span
           >
           <span class="n">{i + 1}</span>
           <button class="ghost t" onclick={() => s && go('song/' + s.id)}>
