@@ -63,6 +63,8 @@
         ['(HV) ', `HV · ${nameOf('hv')}`],
         ['(HV2) ', `HV2 · ${nameOf('hv2')}`],
         ['(Begge) ', 'Begge'],
+        ['(/HV2) ', `2. stemme · ${nameOf('hv2')}`],
+        ['(/HV) ', `2. stemme · ${nameOf('hv')}`],
       ];
     if (song.mode === 'koring')
       return [
@@ -73,6 +75,8 @@
         ['(K1) ', `K1 · ${nameOf('k1')}`],
         ['(K2) ', `K2 · ${nameOf('k2')}`],
         ['(K1+K2) ', `K1+K2 · ${nameOf('k1')}+${nameOf('k2')}`],
+        ['(/K1) ', `2. stemme · ${nameOf('k1')}`],
+        ['(/K2) ', `2. stemme · ${nameOf('k2')}`],
       ];
     return base;
   });
@@ -242,8 +246,9 @@
       </div>
       {#if song.mode !== 'solo'}
         <p class="hint" style="margin:0">
-          Marker ord i teksten og trykk på en vokalist for å merke bare de ordene, f.eks. <code>{'{K1: yeah, yeah}'}</code>. Uten
-          markering gjelder det hele linjen.
+          Marker ord og trykk på en vokalist for å merke bare de ordene. Uten markering gjelder det hele linjen.
+          <b>Koring</b> (egne ord, f.eks. <code>{'{K1: yeah}'}</code>) vises til høyre. <b>2. stemme</b> (samme ord som hovedstemmen,
+          <code>{'{/K1: ord}'}</code>) vises med farget strek under.
         </p>
       {/if}
       <div class="bar">
@@ -265,8 +270,13 @@
           Enkeltlinjer merker du med f.eks. <code>(K1)</code> eller <code>(Kamilla)</code> først på linjen. Det overstyrer delen.
         </p>
         <p>
-          Bare noen ord, f.eks. koring midt i en linje: <code>{"I'm still standing {K1+K2: yeah, yeah, yeah}"}</code>. Bare ordene i
-          klammene får koristens farge.
+          Koring på noen ord: <code>{"I'm still standing {K1+K2: yeah, yeah, yeah}"}</code>. Står koringen sist i linjen, vises den
+          til høyre. <code>{'{ja, ja}'}</code> uten navn betyr K1+K2.
+        </p>
+        <p>
+          Annenstemme over samme tekst skrives med <code>/</code>: <code>[Refreng | HV / K1]</code> for en hel del,
+          <code>(/K1)</code> først på en linje, eller <code>{'{/K1: på deg}'}</code> for noen ord. Den får en strek under i
+          fargen til den som tar annenstemmen.
         </p>
         <p>
           Linjer som starter med «Source:» eller «Songwriters:», og linjer med «lyrics ©», «LyricFind» eller «Musixmatch», fjernes automatisk.

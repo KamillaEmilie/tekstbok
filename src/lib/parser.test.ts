@@ -125,18 +125,59 @@ describe('parseSong', () => {
   });
 });
 
+describe('annenstemme, kort koring og standardfarger', () => {
+  it('«/» skiller melodi og annenstemme', () => {
+    const w = resolveWho('HV / K1', roles, singers)!;
+    expect(w.people.map((p) => p.id)).toEqual(['a']);
+    expect(w.harmony.map((p) => p.id)).toEqual(['b']);
+    const st = whoStyle(w, false);
+    expect(st.text).toBe('#ff0000');
+    expect(st.bar2).toContain('#00ff00');
+  });
+
+  it('annenstemme på enkeltord med {/K1: ord}', () => {
+    const p = parseSong('og tenkte {/K1: på deg}', roles, singers);
+    const part = p.sections[0].lines[0].parts[1];
+    expect(part.text).toBe('på deg');
+    expect(part.who?.people).toEqual([]);
+    expect(part.who?.harmony.map((x) => x.id)).toEqual(['b']);
+    expect(part.margin).toBeFalsy();
+  });
+
+  it('{ord} uten navn er koring for K1+K2, og havner i margen når den står sist', () => {
+    const p = parseSong('vi står her ennå {ja, ja, ja}', roles, singers);
+    const part = p.sections[0].lines[0].parts[1];
+    expect(part.who?.people.map((x) => x.id)).toEqual(['b', 'c']);
+    expect(part.margin).toBe(true);
+  });
+
+  it('koring midt i linjen blir stående på plass', () => {
+    const p = parseSong('vi {K1: oh} står her', roles, singers);
+    expect(p.sections[0].lines[0].parts[1].margin).toBeFalsy();
+  });
+
+  it('uten merking får delen standardfarge: hovedvokal, eller begge i duett', () => {
+    const solo = parseSong('en linje', roles, singers, 'koring');
+    expect(solo.sections[0]).toMatchObject({ implicit: true, who: { people: [{ id: 'a' }] } });
+    const duett = parseSong('en linje', { hv: 'a', hv2: 'c' }, singers, 'duett');
+    expect(duett.sections[0].who?.people.map((x) => x.id)).toEqual(['a', 'c']);
+    const merket = parseSong('[Vers | K2]\nen', roles, singers, 'koring');
+    expect(merket.sections[0]).toMatchObject({ implicit: false, who: { people: [{ id: 'c' }] } });
+  });
+});
+
 describe('whoStyle', () => {
   it('én person gir farget tekst og strek', () => {
-    const s = whoStyle({ people: [singers[0]], all: false }, false);
+    const s = whoStyle({ people: [singers[0]], all: false, harmony: [] }, false);
     expect(s.text).toBe('#ff0000');
     expect(s.bar).toContain('#ff0000');
   });
   it('flere personer gir nøytral tekst og fargeovergang', () => {
-    const s = whoStyle({ people: [singers[0], singers[1]], all: false }, false);
+    const s = whoStyle({ people: [singers[0], singers[1]], all: false, harmony: [] }, false);
     expect(s.text).toBeUndefined();
     expect(s.bar).toBe('linear-gradient(#ff0000,#00ff00)');
   });
   it('lys visning gjør fargen mørkere', () => {
-    expect(whoStyle({ people: [singers[0]], all: false }, true).text).toBe('color-mix(in srgb, #ff0000 62%, black)');
+    expect(whoStyle({ people: [singers[0]], all: false, harmony: [] }, true).text).toBe('color-mix(in srgb, #ff0000 62%, black)');
   });
 });

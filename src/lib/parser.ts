@@ -1,4 +1,4 @@
-import type { RoleCode, Singer } from './types';
+import type { RoleCode, Singer, VocalMode } from './types';
 
 /** Linjer som kommer med når man limer inn fra tekstsider. */
 const JUNK = /^\s*(source:|songwriters?:|written by:)|lyrics\s*©|\blyricfind\b|\bmusixmatch\b/i;
@@ -37,32 +37,33 @@ export function autoSplit(text: string): string {
 }
 
 export type Person = { id?: string; name: string; color?: string };
-export type Who = { people: Person[]; all: boolean };
-/** En bit av en linje. who ≠ null betyr at bare denne biten synges av andre (f.eks. koring). */
-export type Part = { text: string; who: Who | null };
+/** people = melodien (samme melodi om flere), harmony = annenstemme over samme tekst. */
+export type Who = { people: Person[]; all: boolean; harmony: Person[] };
+/**
+ * En bit av en linje. who ≠ null betyr at denne biten synges av andre (koring),
+ * eller – når who.people er tom og who.harmony ikke – at noen legger annenstemme på ordene.
+ * margin = koring som står til slutt i linjen og vises i margen.
+ */
+export type Part = { text: string; who: Who | null; margin?: boolean };
 export type ParsedLine = { text: string; who: Who | null; repeated: boolean; parts: Part[] };
-export type ParsedSection = { label: string; who: Who | null; chorus: boolean; lines: ParsedLine[] };
+/** implicit = ingen merking; who er da standarden for låten (hovedvokal, eller begge i duett). */
+export type ParsedSection = { label: string; who: Who | null; implicit: boolean; chorus: boolean; lines: ParsedLine[] };
 export type ParsedSong = { sections: ParsedSection[]; marked: boolean };
 
 const ALL_WORDS = ['alle', 'all', 'tutti', 'begge'];
 const CODES: Record<string, RoleCode> = { hv: 'hv', hv1: 'hv', hv2: 'hv2', k1: 'k1', k2: 'k2' };
 
-/**
- * Oversetter «HV+K1», «Alle», «Siri & Leif» osv. til personer.
- * strict = true: returner null hvis noen del er ukjent (brukes for «(…)» først på linjen,
- * så ad-lib som «(Ooh) baby» ikke tolkes som et navn).
- */
-export function resolveWho(
+/** «HV+K1», «Siri & Leif», «Alle» → personer. null hvis strict og noe er ukjent. */
+function resolvePeople(
   str: string,
   roles: Partial<Record<RoleCode, string>>,
   singers: Singer[],
-  strict = false,
-): Who | null {
+  strict: boolean,
+): { people: Person[]; all: boolean } | null {
   const parts = str
     .split(/\s*[+,&]\s*/)
     .map((p) => p.trim())
     .filter(Boolean);
-  if (!parts.length) return null;
   const people: Person[] = [];
   let all = false;
   const byId = (id: string) => singers.find((s) => s.id === id);
@@ -85,11 +86,8 @@ export function resolveWho(
     if (k in CODES) {
       const id = roles[CODES[k]];
       const s = id && byId(id);
-      if (s) add(fromSinger(s));
-      else if (strict) {
-        // Kjent kode, men ingen valgt person: godta som merking uten farge.
-        add({ name: part.toUpperCase() });
-      } else add({ name: part.toUpperCase() });
+      // Kjent kode uten valgt person: godta som merking uten farge.
+      add(s ? fromSinger(s) : { name: part.toUpperCase() });
       continue;
     }
     const s = byName(part);
@@ -100,11 +98,33 @@ export function resolveWho(
   return { people, all };
 }
 
-const LABEL = /^\s*\[(.+)\]\s*$/;
-/** «{K1: ord}» eller «{Siri+Leif: ord}» midt i en linje. */
-const INLINE = /\{([^{}:]+):\s*([^{}]*)\}/g;
+/**
+ * Oversetter «HV+K1», «Alle», «Siri & Leif» og «Siri / Kamilla» (melodi / annenstemme) til personer.
+ * strict = true: returner null hvis noen del er ukjent (brukes for «(…)» først på linjen,
+ * så ad-lib som «(Ooh) baby» ikke tolkes som et navn).
+ */
+export function resolveWho(
+  str: string,
+  roles: Partial<Record<RoleCode, string>>,
+  singers: Singer[],
+  strict = false,
+): Who | null {
+  const [mel, ...rest] = str.split('/');
+  const melody = resolvePeople(mel, roles, singers, strict);
+  const harm = rest.length ? resolvePeople(rest.join('+'), roles, singers, strict) : { people: [], all: false };
+  if (!melody || !harm) return null;
+  if (!melody.people.length && !harm.people.length) return null;
+  // Den som synger annenstemme, er ikke også med på melodien.
+  const harmony = harm.people;
+  const people = melody.people.filter((p) => !harmony.some((h) => (p.id ? h.id === p.id : h.name === p.name)));
+  return { people, all: melody.all, harmony };
+}
 
-/** Deler en linje i biter, der «{hvem: ord}» blir egne biter. Ukjent «hvem» lar teksten stå som den er. */
+const LABEL = /^\s*\[(.+)\]\s*$/;
+/** «{K1: ord}», «{Siri+Leif: ord}», «{/K1: ord}» (annenstemme) eller bare «{ord}» (koring = K1+K2). */
+const INLINE = /\{(?:([^{}:]+):\s*)?([^{}]*)\}/g;
+
+/** Deler en linje i biter, der «{…}» blir egne biter. Ukjent «hvem» lar teksten stå som den er. */
 export function splitInline(
   line: string,
   roles: Partial<Record<RoleCode, string>>,
@@ -112,23 +132,45 @@ export function splitInline(
 ): Part[] {
   const parts: Part[] = [];
   let last = 0;
+  const koring = roles.k1 || roles.k2 ? resolveWho([roles.k1 && 'K1', roles.k2 && 'K2'].filter(Boolean).join('+'), roles, singers) : null;
   for (const m of line.matchAll(INLINE)) {
-    const who = resolveWho(m[1], roles, singers, true);
-    if (!who) continue;
+    const who = m[1] !== undefined ? resolveWho(m[1], roles, singers, true) : koring;
+    if (!who || !m[2].trim()) continue;
     if (m.index! > last) parts.push({ text: line.slice(last, m.index), who: null });
     parts.push({ text: m[2], who });
     last = m.index! + m[0].length;
   }
   if (last < line.length) parts.push({ text: line.slice(last), who: null });
-  return parts.length ? parts : [{ text: line, who: null }];
+  if (!parts.length) return [{ text: line, who: null }];
+  // Koring helt til slutt i linjen (bare tegn/mellomrom etter) vises i margen.
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    if (!p.who) {
+      if (/^[\s.,!?…)\-–]*$/.test(p.text)) continue;
+      break;
+    }
+    if (!p.who.people.length) break; // annenstemme hører hjemme i teksten
+    if (i === 0) break; // hele linjen er koring
+    p.margin = true;
+  }
+  return parts;
 }
 const LINE_WHO = /^\s*\(([^)]+)\)\s*(.*)$/;
 const CHORUS = /refreng|chorus|^\s*ref\b|^\s*kor\b/i;
+
+/** Hvem som synger når ingenting er merket: hovedvokal, eller begge i duett. */
+function defaultWho(mode: VocalMode | undefined, roles: Partial<Record<RoleCode, string>>, singers: Singer[]): Who | null {
+  if (!mode) return null;
+  const codes = mode === 'duett' ? ['HV', 'HV2'] : ['HV'];
+  const set = codes.filter((c) => roles[CODES[c.toLowerCase()]]);
+  return set.length ? resolveWho(set.join('+'), roles, singers) : null;
+}
 
 export function parseSong(
   text: string,
   roles: Partial<Record<RoleCode, string>>,
   singers: Singer[],
+  mode?: VocalMode,
 ): ParsedSong {
   type Raw = { label: string; whoStr: string; lines: { text: string; who: Who | null; parts: Part[] }[] };
   const raws: Raw[] = [];
@@ -165,11 +207,13 @@ export function parseSong(
   const cnt = new Map<string, number>();
   for (const r of raws) for (const l of r.lines) cnt.set(norm(l.text), (cnt.get(norm(l.text)) ?? 0) + 1);
 
+  const fallback = defaultWho(mode, roles, singers);
   const sections = raws.map<ParsedSection>((r) => {
-    const who = r.whoStr ? resolveWho(r.whoStr, roles, singers) : null;
+    const explicit = r.whoStr ? resolveWho(r.whoStr, roles, singers) : null;
     return {
       label: r.label,
-      who,
+      who: explicit ?? fallback,
+      implicit: !explicit && !!fallback,
       chorus: CHORUS.test(r.label),
       lines: r.lines.map((l) => ({
         text: l.text,
@@ -187,17 +231,28 @@ export function personColor(color: string, light: boolean): string {
   return light ? `color-mix(in srgb, ${color} 62%, black)` : color;
 }
 
+const gradient = (cols: string[]) => `linear-gradient(${(cols.length === 1 ? [cols[0], cols[0]] : cols).join(',')})`;
+
 /**
  * Farger for en «hvem»: én person → tekst og strek i personens farge.
- * Flere → nøytral tekst og strek med fargeovergang.
+ * Flere på melodien → nøytral tekst og strek med fargeovergang.
+ * Annenstemme → egen, tynnere strek (bar2) ved siden av.
  */
-export function whoStyle(who: Who | null, light: boolean): { text?: string; bar?: string } {
+export function whoStyle(who: Who | null, light: boolean): { text?: string; bar?: string; bar2?: string } {
   if (!who) return {};
   const cols = who.people.filter((p) => p.color).map((p) => personColor(p.color!, light));
-  if (who.people.length === 1 && cols.length === 1) {
-    return { text: cols[0], bar: `linear-gradient(${cols[0]},${cols[0]})` };
-  }
-  if (cols.length === 1) return { bar: `linear-gradient(${cols[0]},${cols[0]})` };
-  if (cols.length > 1) return { bar: `linear-gradient(${cols.join(',')})` };
-  return {};
+  const hcols = (who.harmony ?? []).filter((p) => p.color).map((p) => personColor(p.color!, light));
+  const out: { text?: string; bar?: string; bar2?: string } = {};
+  if (who.people.length === 1 && cols.length === 1) out.text = cols[0];
+  if (cols.length) out.bar = cols.length === 1 ? `linear-gradient(${cols[0]},${cols[0]})` : `linear-gradient(${cols.join(',')})`;
+  if (hcols.length) out.bar2 = gradient(hcols);
+  return out;
+}
+
+/** CSS-bakgrunn for strekene til venstre for en del: tykk for melodien, tynn for annenstemmen. */
+export function barBackground(st: { bar?: string; bar2?: string }): string | null {
+  const layers: string[] = [];
+  if (st.bar) layers.push(`${st.bar} 0 0 / 5px 100% no-repeat`);
+  if (st.bar2) layers.push(`${st.bar2} ${st.bar ? 8 : 0}px 0 / 3px 100% no-repeat`);
+  return layers.length ? layers.join(', ') : null;
 }
