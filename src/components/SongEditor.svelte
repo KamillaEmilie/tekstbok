@@ -7,6 +7,7 @@
   import { keepAwake } from '../lib/wake';
   import { LAYOUT_NAMES, MODE_NAMES, MODE_ROLES, type Layout, type RoleCode, type VocalMode } from '../lib/types';
   import Lyrics from './Lyrics.svelte';
+  import PaintView from './PaintView.svelte';
 
   let { id }: { id: string } = $props();
   const song = $derived(songById(id));
@@ -30,6 +31,9 @@
   });
 
   let ta = $state<HTMLTextAreaElement>();
+  /** «Mal» er standard når låten har tekst; «Rediger tekst» for å lime inn og rette ord. */
+  // svelte-ignore state_referenced_locally
+  let tab = $state<'paint' | 'text'>(songById(id)?.text.trim() ? 'paint' : 'text');
 
   function setMode(m: VocalMode) {
     if (!song) return;
@@ -225,6 +229,13 @@
         {/each}
       </div>
 
+      <div class="bar tabs">
+        <button type="button" class:on={tab === 'paint'} onclick={() => (tab = 'paint')}>🖌 Mal hvem som synger</button>
+        <button type="button" class:on={tab === 'text'} onclick={() => (tab = 'text')}>✏️ Rediger tekst</button>
+      </div>
+      {#if tab === 'paint'}
+        <PaintView {song} singers={store.singers} onchange={touch} />
+      {:else}
       <label class="f"
         >Tekst
         <textarea
@@ -245,11 +256,13 @@
         {/each}
       </div>
       {#if song.mode !== 'solo'}
+        <p class="hint" style="margin:0">Tips: det er enklest å merke koring og 2. stemme under «Mal hvem som synger».</p>
         <p class="hint" style="margin:0">
           Marker ord og trykk på en vokalist for å merke bare de ordene. Uten markering gjelder det hele linjen.
           <b>Koring</b> (egne ord, f.eks. <code>{'{K1: yeah}'}</code>) vises til høyre. <b>2. stemme</b> (samme ord som hovedstemmen,
           <code>{'{/K1: ord}'}</code>) vises med farget strek under.
         </p>
+      {/if}
       {/if}
       <div class="bar">
         <button type="button" onclick={auto}>Del opp automatisk</button>

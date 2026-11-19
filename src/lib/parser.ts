@@ -119,9 +119,9 @@ export function resolveWho(
   return { people, all: melody.all, harmony };
 }
 
-const LABEL = /^\s*\[(.+)\]\s*$/;
+export const LABEL = /^\s*\[(.+)\]\s*$/;
 /** «{K1: ord}», «{Siri+Leif: ord}», «{/K1: ord}» (annenstemme) eller bare «{ord}» (koring = K1+K2). */
-const INLINE = /\{(?:([^{}:]+):\s*)?([^{}]*)\}/g;
+export const INLINE = /\{(?:([^{}:]+):\s*)?([^{}]*)\}/g;
 
 /** Deler en linje i biter, der «{…}» blir egne biter. Ukjent «hvem» lar teksten stå som den er. */
 export function splitInline(
@@ -150,18 +150,20 @@ export function splitInline(
     }
     if (!p.who.people.length) break; // annenstemme hører hjemme i teksten
     if (i === 0) break; // hele linjen er koring
+    // Bare korister flyttes ut; en hovedvokal som synger alene (f.eks. i duett) blir stående.
+    if (p.who.people.some((x) => x.id && (x.id === roles.hv || x.id === roles.hv2))) break;
     p.margin = true;
   }
   return parts;
 }
-const LINE_WHO = /^\s*\(([^)]+)\)\s*(.*)$/;
+export const LINE_WHO = /^\s*\(([^)]+)\)\s*(.*)$/;
 const CHORUS = /refreng|chorus|^\s*ref\b|^\s*kor\b/i;
 
 /**
  * Hovedstemmen er standard og vises hvit. Med solo og koring tas derfor hovedvokalen ut av melodien
  * (annenstemme og koring beholdes). I duett er hver av dere et unntak, så der beholdes alt.
  */
-function withoutLead(who: Who | null, mode: VocalMode | undefined, roles: Partial<Record<RoleCode, string>>): Who | null {
+export function withoutLead(who: Who | null, mode: VocalMode | undefined, roles: Partial<Record<RoleCode, string>>): Who | null {
   if (!who || !mode || mode === 'duett' || !roles.hv) return who;
   const people = who.people.filter((p) => p.id !== roles.hv);
   if (people.length === who.people.length) return who;

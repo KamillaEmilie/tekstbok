@@ -1,0 +1,63 @@
+import { describe, expect, it } from 'vitest';
+import { lineToTokens, paintWord, readLabel, tokensToLine, writeLabel } from './paint';
+import type { Singer } from './types';
+
+const singers: Singer[] = [
+  { id: 's', name: 'Siri', color: '#f0f' },
+  { id: 'k', name: 'Kamilla', color: '#ff0' },
+  { id: 'l', name: 'Leif', color: '#0f0' },
+];
+const roles = { hv: 's', k1: 'k', k2: 'l' };
+
+describe('maling av ord', () => {
+  it('maler tre ord som 2. stemme og slår dem sammen', () => {
+    let line = "You'll wind up like the wreck you hide behind that mask you use";
+    const pen = { code: 'K1', harm: true };
+    for (const i of [10, 11, 12]) line = paintWord(line, i, pen, roles, singers, 'koring');
+    expect(line).toBe("You'll wind up like the wreck you hide behind that {/K1: mask you use}");
+  });
+
+  it('samme pensel en gang til visker ut', () => {
+    const line = paintWord('a {/K1: b c} d', 1, { code: 'K1', harm: true }, roles, singers, 'koring');
+    expect(line).toBe('a b {/K1: c} d');
+  });
+
+  it('linjemerke (K1) gjøres om til maling på hvert ord', () => {
+    const toks = lineToTokens('(K1) hei på deg', roles, singers, 'koring');
+    expect(toks.map((t) => t.paint?.code)).toEqual(['K1', 'K1', 'K1']);
+  });
+
+  it('2. stemme på en linje merket (K1) fjerner hel-linje-merket', () => {
+    let line = '(K1) that mask you use';
+    for (const i of [1, 2, 3]) line = paintWord(line, i, { code: 'K1', harm: true }, roles, singers, 'koring');
+    expect(line).toBe('that {/K1: mask you use}');
+  });
+
+  it('viskelær på en linje merket (K1) fjerner hele merket', () => {
+    expect(paintWord('(K1) hei på deg', 1, null, roles, singers, 'koring')).toBe('hei på deg');
+  });
+
+  it('(HV) med koring er hovedstemmen og får ingen maling', () => {
+    expect(lineToTokens('(HV) hei', roles, singers, 'koring')[0].paint).toBeNull();
+  });
+
+  it('kort koring {ord} og ukjente klammer bevares', () => {
+    expect(tokensToLine(lineToTokens('vi står {ja, ja}', roles, singers, 'koring'))).toBe('vi står {ja, ja}');
+    expect(tokensToLine(lineToTokens('noe {Ukjent: x} her', roles, singers, 'koring'))).toBe('noe {Ukjent: x} her');
+  });
+
+  it('ad-lib i parentes er vanlig tekst', () => {
+    expect(tokensToLine(lineToTokens('(ooh) baby', roles, singers, 'koring'))).toBe('(ooh) baby');
+  });
+});
+
+describe('delmerker', () => {
+  it('leser og skriver', () => {
+    expect(readLabel('[Vers 1 | Siri]')).toEqual({ label: 'Vers 1', who: 'Siri' });
+    expect(readLabel('[Refreng]')).toEqual({ label: 'Refreng', who: '' });
+    expect(writeLabel('Vers 1', 'HV2')).toBe('[Vers 1 | HV2]');
+    expect(writeLabel('Vers 1', '')).toBe('[Vers 1]');
+    expect(writeLabel('', 'K1')).toBe('[ | K1]');
+    expect(writeLabel('', '')).toBeNull();
+  });
+});
