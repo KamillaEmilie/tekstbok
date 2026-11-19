@@ -84,6 +84,7 @@ function normalizeSong(s: Partial<Song>): Song {
     key: str(s.key),
     bpm: str(s.bpm),
     capo: str(s.capo),
+    duration: str(s.duration),
     notes: str(s.notes),
     mode: MODES.includes(s.mode as VocalMode) ? (s.mode as VocalMode) : 'solo',
     hv: str(s.hv) || undefined,
@@ -99,7 +100,11 @@ function normalizeSong(s: Partial<Song>): Song {
 export type Counts = { new: number; updated: number; unchanged: number };
 export type MergeResult = { put: Data; counts: { songs: Counts; setlists: Counts; singers: Counts } };
 
-function mergeList<T extends { id: string; updatedAt?: number }>(existing: T[], incoming: T[]) {
+function mergeList<T extends { id: string; updatedAt?: number }>(
+  existing: T[],
+  incoming: T[],
+  fillGaps?: (cur: T, inc: T) => T | null,
+) {
   const map = new Map(existing.map((x) => [x.id, x]));
   const put: T[] = [];
   const counts: Counts = { new: 0, updated: 0, unchanged: 0 };
@@ -111,14 +116,31 @@ function mergeList<T extends { id: string; updatedAt?: number }>(existing: T[], 
     } else if ((item.updatedAt ?? 0) > (cur.updatedAt ?? 0)) {
       counts.updated++;
       put.push(item);
-    } else counts.unchanged++;
+    } else {
+      // Vår versjon er nyest, men fyll inn felt vi mangler (f.eks. varighet).
+      const filled = fillGaps?.(cur, item);
+      if (filled) {
+        counts.updated++;
+        put.push(filled);
+      } else counts.unchanged++;
+    }
   }
   return { put, counts };
 }
 
+/** Felt som kan fylles inn fra en import uten å overskrive noe. Teksten røres aldri. */
+const FILLABLE = ['artist', 'key', 'bpm', 'capo', 'notes', 'duration'] as const;
+export function fillSongGaps(cur: Song, inc: Song): Song | null {
+  let out: Song | null = null;
+  for (const f of FILLABLE) {
+    if (!(cur[f] ?? '').trim() && (inc[f] ?? '').trim()) (out ??= { ...cur })[f] = inc[f];
+  }
+  return out;
+}
+
 /** Slår sammen på id. Ved konflikt vinner nyeste updatedAt. */
 export function mergeBundle(existing: Data, incoming: Bundle): MergeResult {
-  const songs = mergeList(existing.songs, incoming.songs);
+  const songs = mergeList(existing.songs, incoming.songs, fillSongGaps);
   const setlists = mergeList(existing.setlists, incoming.setlists);
   const singers = mergeList(existing.singers, incoming.singers);
   return {

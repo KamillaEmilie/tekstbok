@@ -190,6 +190,7 @@
         <label class="f">Toneart<input bind:value={song.key} placeholder="f.eks. G" /></label>
         <label class="f">Tempo<input bind:value={song.bpm} placeholder="BPM" inputmode="numeric" /></label>
         <label class="f">Capo<input bind:value={song.capo} inputmode="numeric" /></label>
+        <label class="f">Varighet<input bind:value={song.duration} placeholder="f.eks. 3:45" inputmode="decimal" /></label>
       </div>
       <label class="f">Notater<input bind:value={song.notes} placeholder="f.eks. «Start med trommer»" /></label>
 

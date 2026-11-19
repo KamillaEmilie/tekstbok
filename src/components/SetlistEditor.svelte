@@ -7,7 +7,7 @@
   import { keepAwake } from '../lib/wake';
   import { bundleFilename, makeBundle, shareOrDownload } from '../lib/io';
   import BackupReminder from './BackupReminder.svelte';
-  import { MARKER_NAMES, isMarker, newMarkerId, songIdsOnly, type MarkerKind } from '../lib/types';
+  import { MARKER_NAMES, durationSec, formatTotal, isMarker, newMarkerId, songIdsOnly, type MarkerKind } from '../lib/types';
 
   let { id }: { id: string } = $props();
   const l = $derived(setlistById(id));
@@ -43,6 +43,17 @@
     return (l?.songIds ?? []).map((x) => (isMarker(x) ? null : ++n));
   });
   const songCount = $derived(l ? songIdsOnly(l).length : 0);
+  /** Samlet spilletid for låtene, og hvor mange som mangler varighet. */
+  const total = $derived.by(() => {
+    let sec = 0;
+    let missing = 0;
+    for (const sid of l ? songIdsOnly(l) : []) {
+      const d = durationSec(songById(sid)?.duration);
+      if (d === null) missing++;
+      else sec += d;
+    }
+    return { sec, missing };
+  });
 
   let lastAdded = $state<string | null>(null);
   function addMarker(kind: MarkerKind) {
@@ -256,6 +267,9 @@
 
     <div class="bar">
       <h2>Låter ({songCount})</h2>
+      {#if total.sec}
+        <span class="hint">ca. {formatTotal(total.sec)}{total.missing ? ` + ${total.missing} uten tid` : ''}</span>
+      {/if}
       <span style="flex:1"></span>
       <button onclick={() => addMarker('pause')}>+ Pause</button>
       <button onclick={() => addMarker('prat')}>+ Prat</button>
@@ -311,7 +325,7 @@
             <button class="ghost t" onclick={() => s && go('song/' + s.id)}>
               {s?.title || '(mangler)'}
               {#if s && !s.text.trim()}<span class="warn">mangler tekst</span>{/if}
-              <span class="hint">{[s?.key, s?.bpm && s.bpm + ' BPM'].filter(Boolean).join(' · ')}</span>
+              <span class="hint">{[s?.key, s?.bpm && s.bpm + ' BPM', s?.duration].filter(Boolean).join(' · ')}</span>
             </button>
           {/if}
           <button onclick={() => start(i)} aria-label="Start her">▶</button>

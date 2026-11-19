@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { convertPrototype, makeBundle, mergeBundle, summarize, validateBundle } from './io';
-import type { Singer, Song } from './types';
+import { durationSec, formatTotal, type Singer, type Song } from './types';
 
 const song = (id: string, updatedAt: number, title = id): Song => ({ id, title, mode: 'solo', layout: 'scroll', text: 'la la', updatedAt });
 const singers: Singer[] = [{ id: 'a', name: 'Anna', color: '#f00' }];
@@ -13,6 +13,21 @@ describe('mergeBundle', () => {
     expect(r.counts.songs).toEqual({ new: 1, updated: 1, unchanged: 1 });
     expect(r.put.songs.map((s) => s.id).sort()).toEqual(['1', '3']);
     expect(summarize(r.counts)).toBe('Låter: 1 nye, 1 oppdatert');
+  });
+});
+
+describe('fylle inn tomme felt', () => {
+  it('legger til varighet uten å overskrive en nyere låt', () => {
+    const mine = { ...song('1', 500), text: 'min nye tekst', key: 'G' };
+    const theirs = { ...song('1', 100), text: 'gammel tekst', key: 'A', duration: '3:45' };
+    const r = mergeBundle({ songs: [mine], setlists: [], singers }, validateBundle({ format: 'tekstbok', songs: [theirs] }));
+    expect(r.counts.songs).toEqual({ new: 0, updated: 1, unchanged: 0 });
+    expect(r.put.songs[0]).toMatchObject({ text: 'min nye tekst', key: 'G', duration: '3:45', updatedAt: 500 });
+  });
+  it('lar låten være når ingenting mangler', () => {
+    const mine = { ...song('1', 500), duration: '3:00' };
+    const r = mergeBundle({ songs: [mine], setlists: [], singers }, validateBundle({ format: 'tekstbok', songs: [{ ...song('1', 100), duration: '9:99' }] }));
+    expect(r.counts.songs.unchanged).toBe(1);
   });
 });
 
@@ -49,5 +64,16 @@ describe('convertPrototype', () => {
     expect(r.songs[0].mode).toBe('koring');
     expect(r.newSingers.map((s) => s.name)).toEqual(['Ny Person']);
     expect(r.songs[0].k1).toBe(r.newSingers[0].id);
+  });
+});
+
+describe('varighet', () => {
+  it('leser m:ss og summerer', () => {
+    expect(durationSec('3:45')).toBe(225);
+    expect(durationSec('3.05')).toBe(185);
+    expect(durationSec('')).toBeNull();
+    expect(durationSec('tja')).toBeNull();
+    expect(formatTotal(3125)).toBe('52 min');
+    expect(formatTotal(4000)).toBe('1 t 7 min');
   });
 });

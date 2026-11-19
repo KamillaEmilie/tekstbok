@@ -50,7 +50,7 @@
   );
   const meta = $derived(
     song
-      ? [song.key && 'Toneart ' + song.key, song.bpm && song.bpm + ' BPM', song.capo && 'Capo ' + song.capo].filter(Boolean).join(' · ')
+      ? [song.key && 'Toneart ' + song.key, song.bpm && song.bpm + ' BPM', song.capo && 'Capo ' + song.capo, song.duration].filter(Boolean).join(' · ')
       : '',
   );
 

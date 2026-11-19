@@ -10,6 +10,8 @@ export type Song = {
   key?: string;
   bpm?: string;
   capo?: string;
+  /** Omtrentlig lengde, f.eks. «3:45». */
+  duration?: string;
   notes?: string;
   mode: VocalMode;
   hv?: string;
@@ -88,6 +90,22 @@ export const DEFAULT_SINGERS: Singer[] = [
 ];
 
 export const EXTRA_COLORS = ['#5fb7ff', '#c3a6ff', '#ff9f5a', '#4fe0d2', '#ff6b6b'];
+
+/** «3:45» → 225 sekunder. Tåler også «3.45» og «225». Ugyldig → null. */
+export function durationSec(d?: string): number | null {
+  const t = (d ?? '').trim();
+  if (!t) return null;
+  const m = t.match(/^(\d{1,3})[:.](\d{1,2})$/);
+  if (m) return Number(m[1]) * 60 + Number(m[2]);
+  if (/^\d+$/.test(t)) return Number(t);
+  return null;
+}
+
+/** 3125 sekunder → «52 min», 4000 → «1 t 7 min». */
+export function formatTotal(sec: number): string {
+  const min = Math.round(sec / 60);
+  return min >= 60 ? `${Math.floor(min / 60)} t ${min % 60} min` : `${min} min`;
+}
 
 export const MARKER_PREFIX = 'm:';
 export const isMarker = (id: string) => id.startsWith(MARKER_PREFIX);

@@ -37,7 +37,7 @@
       <button class="main ghost" onclick={() => go('song/' + s.id)}>
         <span class="t">{s.title || '(uten tittel)'}</span>
         <span class="m">
-          {[s.artist, s.key && 'Toneart ' + s.key, usage(s.id) && `${usage(s.id)} settliste${usage(s.id) > 1 ? 'r' : ''}`]
+          {[s.artist, s.key && 'Toneart ' + s.key, s.duration, usage(s.id) && `${usage(s.id)} settliste${usage(s.id) > 1 ? 'r' : ''}`]
             .filter(Boolean)
             .join(' · ')}
           {#if !s.text.trim()}<span class="warn">· mangler tekst</span>{/if}
