@@ -53,7 +53,7 @@
 <div class="lyr" bind:this={el}>
   {#each parsed.sections as sec}
     {@const ws = whoStyle(sec.who, light)}
-    {@const showWho = sec.who && !sec.implicit}
+    {@const showWho = !!sec.who}
     <section
       class="sec"
       class:chorus={sec.chorus}

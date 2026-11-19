@@ -46,8 +46,7 @@ export type Who = { people: Person[]; all: boolean; harmony: Person[] };
  */
 export type Part = { text: string; who: Who | null; margin?: boolean };
 export type ParsedLine = { text: string; who: Who | null; repeated: boolean; parts: Part[] };
-/** implicit = ingen merking; who er da standarden for låten (hovedvokal, eller begge i duett). */
-export type ParsedSection = { label: string; who: Who | null; implicit: boolean; chorus: boolean; lines: ParsedLine[] };
+export type ParsedSection = { label: string; who: Who | null; chorus: boolean; lines: ParsedLine[] };
 export type ParsedSong = { sections: ParsedSection[]; marked: boolean };
 
 const ALL_WORDS = ['alle', 'all', 'tutti', 'begge'];
@@ -158,12 +157,16 @@ export function splitInline(
 const LINE_WHO = /^\s*\(([^)]+)\)\s*(.*)$/;
 const CHORUS = /refreng|chorus|^\s*ref\b|^\s*kor\b/i;
 
-/** Hvem som synger når ingenting er merket: hovedvokal, eller begge i duett. */
-function defaultWho(mode: VocalMode | undefined, roles: Partial<Record<RoleCode, string>>, singers: Singer[]): Who | null {
-  if (!mode) return null;
-  const codes = mode === 'duett' ? ['HV', 'HV2'] : ['HV'];
-  const set = codes.filter((c) => roles[CODES[c.toLowerCase()]]);
-  return set.length ? resolveWho(set.join('+'), roles, singers) : null;
+/**
+ * Hovedstemmen er standard og vises hvit. Med solo og koring tas derfor hovedvokalen ut av melodien
+ * (annenstemme og koring beholdes). I duett er hver av dere et unntak, så der beholdes alt.
+ */
+function withoutLead(who: Who | null, mode: VocalMode | undefined, roles: Partial<Record<RoleCode, string>>): Who | null {
+  if (!who || !mode || mode === 'duett' || !roles.hv) return who;
+  const people = who.people.filter((p) => p.id !== roles.hv);
+  if (people.length === who.people.length) return who;
+  if (!people.length && !who.harmony.length) return null;
+  return { ...who, people, all: false };
 }
 
 export function parseSong(
@@ -201,19 +204,16 @@ export function parseSong(
     const body = lm && lw ? lm[2] : raw.trim();
     const parts = splitInline(body, roles, singers);
     if (lw || parts.some((p) => p.who)) marked = true;
-    cur.lines.push({ text: parts.map((p) => p.text).join(''), who: lw, parts });
+    cur.lines.push({ text: parts.map((p) => p.text).join(''), who: withoutLead(lw, mode, roles), parts });
   }
 
   const cnt = new Map<string, number>();
   for (const r of raws) for (const l of r.lines) cnt.set(norm(l.text), (cnt.get(norm(l.text)) ?? 0) + 1);
 
-  const fallback = defaultWho(mode, roles, singers);
   const sections = raws.map<ParsedSection>((r) => {
-    const explicit = r.whoStr ? resolveWho(r.whoStr, roles, singers) : null;
     return {
       label: r.label,
-      who: explicit ?? fallback,
-      implicit: !explicit && !!fallback,
+      who: withoutLead(r.whoStr ? resolveWho(r.whoStr, roles, singers) : null, mode, roles),
       chorus: CHORUS.test(r.label),
       lines: r.lines.map((l) => ({
         text: l.text,

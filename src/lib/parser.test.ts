@@ -156,13 +156,19 @@ describe('annenstemme, kort koring og standardfarger', () => {
     expect(p.sections[0].lines[0].parts[1].margin).toBeFalsy();
   });
 
-  it('uten merking får delen standardfarge: hovedvokal, eller begge i duett', () => {
-    const solo = parseSong('en linje', roles, singers, 'koring');
-    expect(solo.sections[0]).toMatchObject({ implicit: true, who: { people: [{ id: 'a' }] } });
-    const duett = parseSong('en linje', { hv: 'a', hv2: 'c' }, singers, 'duett');
-    expect(duett.sections[0].who?.people.map((x) => x.id)).toEqual(['a', 'c']);
-    const merket = parseSong('[Vers | K2]\nen', roles, singers, 'koring');
-    expect(merket.sections[0]).toMatchObject({ implicit: false, who: { people: [{ id: 'c' }] } });
+  it('hovedstemmen er hvit (ingen farge) med koring, men annenstemmen beholdes', () => {
+    const p = parseSong('[Vers | HV]\nen\n(HV) to\n\n[Refreng | HV / K1]\ntre\n\n[Bro | K2]\nfire', roles, singers, 'koring');
+    expect(p.sections[0].who).toBeNull();
+    expect(p.sections[0].lines[1].who).toBeNull();
+    expect(p.sections[1].who?.people).toEqual([]);
+    expect(p.sections[1].who?.harmony.map((x) => x.id)).toEqual(['b']);
+    expect(p.sections[2].who?.people.map((x) => x.id)).toEqual(['c']);
+  });
+
+  it('duett: bare solodelene får farge, sammen er uten merking', () => {
+    const r = { hv: 'b', hv2: 'a' };
+    const p = parseSong('[Vers 1 | Bo]\nen\n\n[Vers 2]\nto\n\n[Vers 3 | HV2]\ntre', r, singers, 'duett');
+    expect(p.sections.map((s) => s.who?.people.map((x) => x.id) ?? null)).toEqual([['b'], null, ['a']]);
   });
 });
 
