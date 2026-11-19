@@ -66,25 +66,20 @@ En ny versjon lastes ned i bakgrunnen, men tas i bruk først neste gang appen st
 
 Ta en eksport som sikkerhetskopi før hver spillejobb.
 
-## Tekstformat
+## Hvem synger hva
 
-| Skriv | Betyr |
+Under **Mal hvem som synger** på hver låt velger du pensel og trykker på ordene:
+
+| Når | Vises som |
 |---|---|
-| tom linje | ny del |
-| `[Vers 1]` | delmerke |
-| `[Refreng]` | uthevet refreng |
-| `[Vers 2 \| HV2]` | hvem som synger delen (`HV`, `HV2`, `K1`, `K2`, `Alle`, `Begge` eller navn) |
-| `[Refreng \| HV+K1]` | flere sangere, med fargeovergang |
-| `(K1) tekst` | hvem som synger denne linjen |
-| `{K1: ja, ja}` / `{ja, ja}` | koring på noen ord (vises til høyre når den står sist) |
-| `{/K1: mask you use}` | 2. stemme over hovedstemmen på noen ord (farget strek under) |
-| `[Refreng \| HV / K1]` | hovedstemme med 2. stemme på hele delen |
+| én synger alene | vokalistens farge |
+| dere synger sammen | hvit tekst, strek til venstre i fargene til de som synger |
+| 2. stemme | farget strek under ordene |
+| bare kor, uten hovedvokal | til høyre, i korist-fargen |
 
-Hovedstemmen, og det dere synger sammen i en duett, vises hvitt. Bare unntakene får farge.
+Umalt tekst er hovedstemmen (med koring), eller dere sammen (duett). Delnavn som Vers, Refreng og Instrumental settes over hver del og har ingenting med hvem som synger å gjøre.
 
-I appen trenger du ikke skrive kodene selv. Under **Mal hvem som synger** velger du pensel og trykker på ordene.
-
-Appen henter aldri tekster fra nettet. Alt legges inn manuelt.
+I bakgrunnen lagres dette som enkle koder i teksten, for eksempel `{HV2: …}`, `{/K1: …}` og `{K1+K2: …}`. Appen henter aldri tekster fra nettet.
 
 ## Struktur
 

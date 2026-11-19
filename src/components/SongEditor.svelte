@@ -5,10 +5,11 @@
   import { undoable } from '../lib/toast.svelte';
   import { autoSplit, clean } from '../lib/parser';
   import { keepAwake } from '../lib/wake';
-  import { LAYOUT_NAMES, MODE_NAMES, MODE_ROLES, type Layout, type RoleCode, type VocalMode } from '../lib/types';
+  import { LAYOUT_NAMES, MODE_NAMES, MODE_ROLES, activeRoles, type Layout, type RoleCode, type VocalMode } from '../lib/types';
   import Lyrics from './Lyrics.svelte';
   import PaintView from './PaintView.svelte';
   import { lookupDuration } from '../lib/importText';
+  import { flattenSectionWho } from '../lib/paint';
 
   let { id }: { id: string } = $props();
   const song = $derived(songById(id));
@@ -32,6 +33,16 @@
   });
 
   let ta = $state<HTMLTextAreaElement>();
+
+  // Gammel merking av hele deler («[Vers | Siri]») gjøres om til maling på ordene når du maler.
+  $effect(() => {
+    if (tab !== 'paint' || !song) return;
+    const f = flattenSectionWho(song.text, activeRoles(song), store.singers, song.mode);
+    if (f !== null) {
+      song.text = f;
+      saveSong(song);
+    }
+  });
 
   // ---- Varighet hentes automatisk fra Apple Music-katalogen når tittelen er fylt inn ----
   let durNote = $state('');
@@ -75,44 +86,9 @@
     touch();
   }
 
-  const nameOf = (code: RoleCode) => {
-    const sid = song?.[code];
-    return store.singers.find((s) => s.id === sid)?.name ?? code.toUpperCase();
-  };
 
-  const buttons = $derived.by((): [string, string][] => {
-    const base: [string, string][] = [
-      ['[Vers]', '[Vers]'],
-      ['[Refreng]', '[Refreng]'],
-      ['[Bro]', '[Bro]'],
-    ];
-    if (!song) return base;
-    if (song.mode === 'duett')
-      return [
-        ...base,
-        ['[Vers | HV]', `Vers · ${nameOf('hv')}`],
-        ['[Vers | HV2]', `Vers · ${nameOf('hv2')}`],
-        ['[Refreng | Begge]', 'Refreng · Begge'],
-        ['(HV) ', `HV · ${nameOf('hv')}`],
-        ['(HV2) ', `HV2 · ${nameOf('hv2')}`],
-        ['(Begge) ', 'Begge'],
-        ['(/HV2) ', `2. stemme · ${nameOf('hv2')}`],
-        ['(/HV) ', `2. stemme · ${nameOf('hv')}`],
-      ];
-    if (song.mode === 'koring')
-      return [
-        ...base,
-        ['[Vers | HV]', `Vers · ${nameOf('hv')}`],
-        ['[Refreng | HV+K1+K2]', 'Refreng · Alle'],
-        ['[Bro | HV+K1]', `Bro · ${nameOf('hv')}+${nameOf('k1')}`],
-        ['(K1) ', `K1 · ${nameOf('k1')}`],
-        ['(K2) ', `K2 · ${nameOf('k2')}`],
-        ['(K1+K2) ', `K1+K2 · ${nameOf('k1')}+${nameOf('k2')}`],
-        ['(/K1) ', `2. stemme · ${nameOf('k1')}`],
-        ['(/K2) ', `2. stemme · ${nameOf('k2')}`],
-      ];
-    return base;
-  });
+  /** Delnavn kan settes inn fra tekstfeltet. Hvem som synger males under «Mal hvem som synger». */
+  const buttons: [string, string][] = ['Intro', 'Vers', 'Pre-refreng', 'Refreng', 'Bro', 'Solo', 'Instrumental', 'Outro'].map((n) => [`[${n}]`, n]);
 
   // Husk siste markering i tekstfeltet (på iPad kan et trykk på en knapp fjerne fokus).
   let sel = { s: 0, e: 0 };
@@ -288,19 +264,11 @@
         ></textarea>
       </label>
       <div class="bar">
-        <span class="hint">Sett inn ved markøren:</span>
+        <span class="hint">Sett inn delnavn ved markøren:</span>
         {#each buttons as [v, label]}
           <button type="button" onpointerdown={(e) => e.preventDefault()} onclick={() => insert(v)}>{label}</button>
         {/each}
       </div>
-      {#if song.mode !== 'solo'}
-        <p class="hint" style="margin:0">Tips: det er enklest å merke koring og 2. stemme under «Mal hvem som synger».</p>
-        <p class="hint" style="margin:0">
-          Marker ord og trykk på en vokalist for å merke bare de ordene. Uten markering gjelder det hele linjen.
-          <b>Koring</b> (egne ord, f.eks. <code>{'{K1: yeah}'}</code>) vises til høyre. <b>2. stemme</b> (samme ord som hovedstemmen,
-          <code>{'{/K1: ord}'}</code>) vises med farget strek under.
-        </p>
-      {/if}
       {/if}
       <div class="bar">
         <button type="button" onclick={auto}>Del opp automatisk</button>
@@ -308,26 +276,10 @@
         <button type="button" class="danger" onclick={remove}>Slett låt</button>
       </div>
       <details class="hint">
-        <summary>Slik merker du teksten</summary>
+        <summary>Om teksten</summary>
         <p>
-          Tom linje gir ny del. Skriv <code>[Vers 1]</code>, <code>[Refreng]</code> eller <code>[Bro]</code> på egen linje for å merke en del.
-          <code>[Refreng]</code> blir uthevet.
-        </p>
-        <p>
-          Hvem som synger en del, skriver du etter en strek: <code>[Vers 2 | HV2]</code>, <code>[Refreng | HV+K1]</code> eller
-          <code>[Outro | Alle]</code>. Du kan også bruke navn, f.eks. <code>[Bro | Siri & Leif]</code>.
-        </p>
-        <p>
-          Enkeltlinjer merker du med f.eks. <code>(K1)</code> eller <code>(Kamilla)</code> først på linjen. Det overstyrer delen.
-        </p>
-        <p>
-          Koring på noen ord: <code>{"I'm still standing {K1+K2: yeah, yeah, yeah}"}</code>. Står koringen sist i linjen, vises den
-          til høyre. <code>{'{ja, ja}'}</code> uten navn betyr K1+K2.
-        </p>
-        <p>
-          Annenstemme over samme tekst skrives med <code>/</code>: <code>[Refreng | HV / K1]</code> for en hel del,
-          <code>(/K1)</code> først på en linje, eller <code>{'{/K1: på deg}'}</code> for noen ord. Den får en strek under i
-          fargen til den som tar annenstemmen.
+          Tom linje gir ny del. Delnavn som <code>[Vers 1]</code>, <code>[Refreng]</code> eller <code>[Instrumental]</code> står på egen
+          linje. <code>[Refreng]</code> blir uthevet. Hvem som synger hva, merker du under «Mal hvem som synger».
         </p>
         <p>
           Linjer som starter med «Source:» eller «Songwriters:», og linjer med «lyrics ©», «LyricFind» eller «Musixmatch», fjernes automatisk.

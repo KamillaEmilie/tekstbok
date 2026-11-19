@@ -152,7 +152,6 @@ export function splitInline(
       break;
     }
     if (!p.who.people.length) break; // annenstemme hører hjemme i teksten
-    if (i === 0) break; // hele linjen er koring
     // Bare korister flyttes ut; en hovedvokal som synger alene (f.eks. i duett) blir stående.
     if (p.who.people.some((x) => x.id && (x.id === roles.hv || x.id === roles.hv2))) break;
     p.margin = true;
@@ -168,10 +167,20 @@ const CHORUS = /refreng|chorus|^\s*ref\b|^\s*kor\b/i;
  */
 export function withoutLead(who: Who | null, mode: VocalMode | undefined, roles: Partial<Record<RoleCode, string>>): Who | null {
   if (!who || !mode || mode === 'duett' || !roles.hv) return who;
-  const people = who.people.filter((p) => p.id !== roles.hv);
-  if (people.length === who.people.length) return who;
-  if (!people.length && !who.harmony.length) return null;
-  return { ...who, people, all: false };
+  // Bare når hovedvokalen synger alene; synger flere sammen, er det «sammen».
+  if (who.people.length !== 1 || who.people[0].id !== roles.hv) return who;
+  if (!who.harmony.length) return null;
+  return { ...who, people: [], all: false };
+}
+
+/** Hvordan en «hvem» skal vises. */
+export type VocalKind = 'solo' | 'together' | 'kor' | 'harm' | 'none';
+export function vocalKind(who: Who | null, mode: VocalMode | undefined, roles: Partial<Record<RoleCode, string>>): VocalKind {
+  if (!who) return 'none';
+  if (!who.people.length) return who.harmony.length ? 'harm' : 'none';
+  const lead = (p: Person) => !!p.id && (p.id === roles.hv || p.id === roles.hv2);
+  if (mode === 'koring' && !who.people.some(lead)) return 'kor';
+  return who.people.length > 1 ? 'together' : 'solo';
 }
 
 export function parseSong(

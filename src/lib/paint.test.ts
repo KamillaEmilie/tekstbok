@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lineToTokens, paintWord, readLabel, tokensToLine, writeLabel } from './paint';
+import { flattenSectionWho, lineToTokens, paintWord, readLabel, tokensToLine, writeLabel } from './paint';
 import type { Singer } from './types';
 
 const singers: Singer[] = [
@@ -59,5 +59,39 @@ describe('delmerker', () => {
     expect(writeLabel('Vers 1', '')).toBe('[Vers 1]');
     expect(writeLabel('', 'K1')).toBe('[ | K1]');
     expect(writeLabel('', '')).toBeNull();
+  });
+});
+
+describe('gammel del-merking blir maling', () => {
+  it('duett: «[Vers 3 | HV2]» blir maling på ordene, delnavnet beholdes', () => {
+    const r = { hv: 'k', hv2: 's' };
+    const t = flattenSectionWho('[Vers 3 | HV2]\nen to\ntre\n\n[Vers 4]\nfire', r, singers, 'duett');
+    expect(t).toBe('[Vers 3]\n{HV2: en to}\n{HV2: tre}\n\n[Vers 4]\nfire');
+  });
+  it('etikett uten navn fjernes helt', () => {
+    expect(flattenSectionWho('[ | HV2]\nen', { hv: 'k', hv2: 's' }, singers, 'duett')).toBe('{HV2: en}');
+  });
+  it('koring: «[Refreng | HV / K1]» blir 2. stemme', () => {
+    expect(flattenSectionWho('[Refreng | HV / K1]\nen to', roles, singers, 'koring')).toBe('[Refreng]\n{/K1: en to}');
+  });
+  it('ingenting å gjøre gir null', () => {
+    expect(flattenSectionWho('[Vers]\nen', roles, singers, 'koring')).toBeNull();
+  });
+});
+
+describe('solo med 2. stemme på samme ord', () => {
+  const r = { hv: 'k', hv2: 's' };
+  it('2. stemme på et solo-ord kombineres, og samme pensel fjerner den igjen', () => {
+    let line = '{HV2: jeg holdt fast}';
+    line = paintWord(line, 1, { code: 'HV', harm: true }, r, singers, 'duett');
+    expect(line).toBe('{HV2: jeg} {HV2/HV: holdt} {HV2: fast}');
+    line = paintWord(line, 1, { code: 'HV', harm: true }, r, singers, 'duett');
+    expect(line).toBe('{HV2: jeg holdt fast}');
+  });
+  it('gammel del «Siri» med 2. stemme-linje beholder Siri', () => {
+    expect(flattenSectionWho('[ | HV2]\nmin linje\n{/HV: vi holder}', r, singers, 'duett')).toBe('{HV2: min linje}\n{HV2/HV: vi holder}');
+  });
+  it('del «HV2 / HV» blir kombinert maling', () => {
+    expect(flattenSectionWho('[Bro | HV2 / HV]\nen', r, singers, 'duett')).toBe('[Bro]\n{HV2/HV: en}');
   });
 });

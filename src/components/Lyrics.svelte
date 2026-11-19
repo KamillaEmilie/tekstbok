@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { parseSong, personColor, whoStyle, type Part, type Person, type Who } from '../lib/parser';
+  // Fire regler: alene = vokalistens farge · sammen = hvit + farget strek til venstre ·
+  // 2. stemme = farget strek under · bare kor = til høyre i korist-fargen.
+  import { parseSong, personColor, vocalKind, type Part, type Person, type Who } from '../lib/parser';
+  import { barStyle, colorsOf, defaultTogether, korStyle, underlineStyle } from '../lib/vocal';
   import { activeRoles, type Singer, type Song } from '../lib/types';
 
   let {
@@ -9,77 +12,77 @@
     el = $bindable(),
   }: { song: Song; singers: Singer[]; light?: boolean; el?: HTMLDivElement } = $props();
 
-  const parsed = $derived(parseSong(song.text ?? '', activeRoles(song), singers, song.mode));
+  const roles = $derived(activeRoles(song));
+  const parsed = $derived(parseSong(song.text ?? '', roles, singers, song.mode));
+  const together0 = $derived(defaultTogether(song.mode, roles, singers));
+  const kind = (who: Who | null) => vocalKind(who, song.mode, roles);
 
-  const colorsOf = (people: Person[]) => people.filter((p) => p.color).map((p) => personColor(p.color!, light));
+  type Seg = { text: string; style: string };
+  type View = { color: string | null; bar: string | null; right: boolean; main: Seg[]; side: Seg[] };
 
-  /** Koring: én person gir personens farge, flere gir fargeovergang i teksten. */
-  function korStyle(who: Who): string {
-    const cols = colorsOf(who.people);
-    if (cols.length === 1) return `color:${cols[0]}`;
-    if (cols.length > 1)
-      return `background-image:linear-gradient(90deg,${cols.join(',')});-webkit-background-clip:text;background-clip:text;color:transparent`;
-    return '';
+  /** Regner ut hvordan én linje skal se ut. */
+  function lineView(parts: Part[], lineWho: Who | null, secWho: Who | null): View {
+    const base = lineWho ?? secWho ?? together0;
+    const bk = kind(base);
+    const color = bk === 'solo' ? (colorsOf(base!.people, light)[0] ?? null) : null;
+    const bars = new Set<string>();
+    // Standarden (f.eks. «sammen» i duett) gjelder bare ord som ikke er malt.
+    const hasPlain = parts.some((p) => !p.who && p.text.trim());
+    if (bk === 'together' && hasPlain) colorsOf(base!.people, light).forEach((c) => bars.add(c));
+    const baseUl = base?.harmony?.length ? underlineStyle(base.harmony, light) : '';
+    const main: Seg[] = [];
+    const side: Seg[] = [];
+    for (const p of parts) {
+      const k = kind(p.who);
+      const ul = k !== 'harm' && p.who?.harmony?.length ? ';' + underlineStyle(p.who.harmony, light) : '';
+      if (k === 'harm') main.push({ text: p.text, style: underlineStyle(p.who!.harmony, light) });
+      else if (k === 'solo') main.push({ text: p.text, style: `color:${colorsOf(p.who!.people, light)[0] ?? 'var(--fg)'}${ul}` });
+      else if (k === 'together') {
+        colorsOf(p.who!.people, light).forEach((c) => bars.add(c));
+        main.push({ text: p.text, style: `color:var(--fg)${ul}` });
+      } else if (k === 'kor') (p.margin ? side : main).push({ text: p.margin ? p.text.trim() : p.text, style: korStyle(p.who!.people, light) + ';font-style:italic;font-weight:700' });
+      else main.push({ text: p.text, style: p.text.trim() ? baseUl : '' });
+    }
+    // Hele linjen er kor (f.eks. «(K1+K2) Shoot me»): flytt til høyre.
+    if (bk === 'kor') {
+      const st = korStyle(base!.people, light) + ';font-style:italic;font-weight:700';
+      return { color: null, bar: null, right: true, main: [], side: [...main.map((m) => ({ text: m.text, style: m.style || st })), ...side] };
+    }
+    return { color, bar: barStyle([...bars]), right: !main.some((m) => m.text.trim()) && side.length > 0, main, side };
   }
 
-  /** Annenstemme: farget strek under teksten, i fargen til den (eller de) som tar annenstemmen. */
-  function underline(harmony: Person[]): string | null {
-    const cols = colorsOf(harmony);
-    if (!cols.length) return harmony.length ? 'text-decoration:underline;text-underline-offset:0.18em' : null;
-    const g = cols.length === 1 ? `${cols[0]},${cols[0]}` : cols.join(',');
-    return `background-image:linear-gradient(90deg,${g});background-size:100% 0.11em;background-position:0 100%;background-repeat:no-repeat;padding-bottom:0.06em`;
-  }
-
-  const mainParts = (parts: Part[]) => parts.filter((p) => !p.margin);
-  const marginParts = (parts: Part[]) => parts.filter((p) => p.margin);
+  const names = (people: Person[]) => people;
 </script>
-
-{#snippet names(people: Person[], all = false)}
-  {#if all}
-    <b>Alle</b>
-  {:else}
-    {#each people as p, i}
-      {#if i > 0}<span class="plus"> + </span>{/if}<b style:color={p.color ? personColor(p.color, light) : null}>{p.name}</b>
-    {/each}
-  {/if}
-{/snippet}
-
-{#snippet whoLabel(who: Who)}
-  {#if who.people.length}{@render names(who.people, who.all)}{/if}{#if who.harmony?.length}<span class="plus"
-      >{who.people.length ? ' · ' : ''}2.st{' '}</span
-    >{@render names(who.harmony)}{/if}
-{/snippet}
 
 <div class="lyr" bind:this={el}>
   {#each parsed.sections as sec}
-    {@const ws = whoStyle(sec.who, light)}
-    {@const showWho = !!sec.who}
-    <section
-      class="sec"
-      class:chorus={sec.chorus}
-      class:greybar={sec.chorus && !ws.bar}
-      class:barred={!!ws.bar}
-      style:background-image={ws.bar ?? null}
-    >
-      {#if sec.label || showWho}
-        <div class="lbl">{sec.label}{#if showWho && sec.who}<span class="who">{@render whoLabel(sec.who)}</span>{/if}</div>
+    <section class="sec" class:chorus={sec.chorus}>
+      {#if sec.label || (sec.who && kind(sec.who) !== 'none')}
+        <div class="lbl">
+          {sec.label}{#if sec.who}<span class="who"
+              >{#each names(sec.who.people) as p, i}{#if i > 0}<span class="plus"> + </span>{/if}<b
+                  style:color={p.color ? personColor(p.color, light) : null}>{p.name}</b
+                >{/each}{#if sec.who.harmony?.length}<span class="plus">{sec.who.people.length ? ' · ' : ''}2.st </span
+                >{#each sec.who.harmony as p, i}{#if i > 0}<span class="plus"> + </span>{/if}<b
+                    style:color={p.color ? personColor(p.color, light) : null}>{p.name}</b
+                  >{/each}{/if}</span
+            >{/if}
+        </div>
       {/if}
       {#each sec.lines as ln}
-        {@const lw = ln.who ? whoStyle(ln.who, light) : null}
-        {@const harmony = (ln.who ? ln.who.harmony : sec.who?.harmony) ?? []}
-        {@const lineUl = underline(harmony)}
-        {@const side = marginParts(ln.parts)}
-        <div class="ln" class:rep={ln.repeated} class:withm={side.length > 0} style:color={lw && ln.who?.people.length ? (lw.text ?? 'var(--fg)') : (ws.text ?? null)}>
-          <span class="main"
-            >{#if ln.who}<span class="tag">{@render whoLabel(ln.who)}</span>{/if}{#each mainParts(ln.parts) as part}{#if part.who && !part.who.people.length}<span
-                  class="ul"
-                  style={underline(part.who.harmony)}>{part.text}</span
-                >{:else if part.who}<span class="kor" style={korStyle(part.who)}>{part.text}</span>{:else if lineUl && part.text.trim()}<span
-                  class="ul"
-                  style={lineUl}>{part.text}</span
-                >{:else}{part.text}{/if}{/each}</span
-          >{#if side.length}<span class="side"
-              >{#each side as part, i}{#if i > 0}{' '}{/if}<span class="kor" style={korStyle(part.who!)}>{part.text.trim()}</span>{/each}</span
+        {@const v = lineView(ln.parts, ln.who, sec.who)}
+        <div
+          class="ln"
+          class:rep={ln.repeated}
+          class:barred={!!v.bar}
+          class:greybar={sec.chorus && !v.bar}
+          class:right={v.right}
+          class:withm={v.side.length > 0 && !v.right}
+          style:color={v.color}
+          style:background-image={v.bar}
+        >
+          {#if !v.right}<span class="main">{#each v.main as m}{#if m.style}<span class="seg" style={m.style}>{m.text}</span>{:else}{m.text}{/if}{/each}</span>{/if}{#if v.side.length}<span
+              class="side">{#each v.side as m, i}{#if i > 0}{' '}{/if}<span class="seg" style={m.style}>{m.text}</span>{/each}</span
             >{/if}
         </div>
       {/each}
@@ -98,15 +101,6 @@
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
     margin: 0 0 0.7em;
-    background-size: 5px 100%;
-    background-repeat: no-repeat;
-  }
-  .sec.barred,
-  .sec.greybar {
-    padding-left: 0.55em;
-  }
-  .sec.greybar {
-    background-image: linear-gradient(var(--muted), var(--muted));
   }
   .sec.chorus .ln {
     font-weight: 700;
@@ -126,6 +120,14 @@
   .plus {
     color: var(--muted);
   }
+  .ln {
+    background-size: 5px 100%;
+    background-repeat: no-repeat;
+    padding-left: 0.55em;
+  }
+  .ln.greybar {
+    background-image: linear-gradient(var(--muted), var(--muted));
+  }
   .ln.rep {
     font-weight: 700;
   }
@@ -138,26 +140,20 @@
     flex: 1;
     min-width: 0;
   }
-  .side {
-    font-size: 0.78em;
-    font-style: italic;
+  .ln.right {
     text-align: right;
-    max-width: 45%;
   }
-  .kor {
-    font-weight: 700;
+  .side {
+    font-size: 0.82em;
+    text-align: right;
+    max-width: 50%;
+  }
+  .ln.right .side {
+    max-width: none;
+  }
+  .seg {
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;
-  }
-  .ul {
-    -webkit-box-decoration-break: clone;
-    box-decoration-break: clone;
-  }
-  .tag {
-    font-size: 0.5em;
-    margin-right: 0.5em;
-    vertical-align: middle;
-    color: var(--muted);
   }
   .none {
     color: var(--muted);

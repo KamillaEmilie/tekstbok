@@ -68,6 +68,10 @@ export function tokensToLine(toks: Token[]): string {
   return out.join(' ');
 }
 
+/** «Siri alene» + «Kamilla 2. stemme» → «Siri med Kamilla på 2. stemme» ({HV2/HV: …}). */
+const combine = (base: Paint, harm: Paint): Paint => ({ code: `${base.code}/${harm.code}`, harm: false });
+const splitCombined = (p: Paint) => (p.harm || !p.code.includes('/') ? null : p.code.split('/').map((x) => x.trim()));
+
 /** Maler ett ord: samme pensel en gang til (eller viskelær) fjerner malingen. */
 export function paintWord(line: string, index: number, pen: Paint | null, roles: Roles, singers: Singer[], mode?: VocalMode): string {
   const toks = lineToTokens(line, roles, singers, mode);
@@ -78,7 +82,13 @@ export function paintWord(line: string, index: number, pen: Paint | null, roles:
     for (const t of toks) if (t.fromTag) t.paint = null;
     if (!pen) return tokensToLine(toks);
   }
-  toks[index] = { ...toks[index], paint: pen && !samePaint(toks[index].paint, pen) ? pen : null };
+  const cur = toks[index].paint;
+  const parts = cur && splitCombined(cur);
+  let next: Paint | null;
+  if (pen?.harm && parts && parts[1] === pen.code) next = { code: parts[0], harm: false }; // fjern 2. stemmen igjen
+  else if (pen?.harm && cur && !cur.harm && cur.code && !parts) next = combine(cur, pen); // legg 2. stemme på en solo
+  else next = pen && !samePaint(cur, pen) ? pen : null;
+  toks[index] = { ...toks[index], paint: next };
   return tokensToLine(toks);
 }
 
@@ -94,4 +104,51 @@ export function readLabel(line: string): { label: string; who: string } | null {
 export function writeLabel(label: string, who: string): string | null {
   if (!label && !who) return null;
   return who ? `[${label} | ${who}]` : `[${label}]`;
+}
+
+/**
+ * Gjør gammel merking av hele deler («[Vers 3 | Siri]») om til maling på ordene, så alt kan
+ * endres med penslene. Delnavnet beholdes. Returnerer null hvis ingenting ble endret.
+ */
+export function flattenSectionWho(text: string, roles: Roles, singers: Singer[], mode?: VocalMode): string | null {
+  const lines = text.split('\n');
+  let changed = false;
+  let paint: Paint | null | undefined; // undefined = ingen aktiv del-merking
+  let afterLabel = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) {
+      if (!afterLabel) paint = undefined;
+      continue;
+    }
+    const lab = LABEL.test(line) ? readLabel(line) : null;
+    if (lab) {
+      afterLabel = true;
+      paint = undefined;
+      if (!lab.who) continue;
+      const who = resolveWho(lab.who, roles, singers);
+      if (!who) continue;
+      const [mel, harm] = lab.who.split('/');
+      const melWho = withoutLead(resolveWho(mel, roles, singers), mode, roles);
+      const together = mode === 'duett' && melWho && melWho.people.length > 1;
+      const melPaint = melWho?.people.length && !together ? { code: mel.trim(), harm: false } : null;
+      const harmPaint = harm?.trim() ? { code: harm.trim(), harm: true } : null;
+      paint = melPaint && harmPaint ? combine(melPaint, harmPaint) : (melPaint ?? harmPaint);
+      const nl = writeLabel(lab.label, '');
+      if (nl === null) {
+        lines.splice(i, 1);
+        i--;
+      } else lines[i] = nl;
+      changed = true;
+      continue;
+    }
+    afterLabel = false;
+    const p = paint;
+    if (!p) continue;
+    const toks = lineToTokens(line, roles, singers, mode).map((t) =>
+      !t.paint ? { ...t, paint: p } : t.paint.harm && !p.harm && !splitCombined(p) ? { ...t, paint: combine(p, t.paint) } : t,
+    );
+    lines[i] = tokensToLine(toks);
+  }
+  return changed ? lines.join('\n') : null;
 }
