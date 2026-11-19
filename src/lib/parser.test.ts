@@ -43,6 +43,18 @@ describe('parseSong', () => {
     expect(p.sections).toHaveLength(2);
   });
 
+  it('delmerke etterfulgt av tom linje gjelder teksten under', () => {
+    const p = parseSong('[Refreng | K1]\n\nen\nto\n\ntre', roles, singers);
+    expect(p.sections).toHaveLength(2);
+    expect(p.sections[0]).toMatchObject({ label: 'Refreng', lines: [{ text: 'en' }, { text: 'to' }] });
+    expect(p.sections[0].who?.people.map((x) => x.id)).toEqual(['b']);
+  });
+
+  it('delmerke uten tekst (f.eks. [Instrumental]) vises fortsatt', () => {
+    const p = parseSong('[Instrumental]\n\n[Outro]\nslutt', roles, singers);
+    expect(p.sections.map((s) => s.label)).toEqual(['Instrumental', 'Outro']);
+  });
+
   it('oversetter koder til personene valgt for låten', () => {
     const p = parseSong('[Vers | K1]\nen', roles, singers);
     expect(p.sections[0].who?.people.map((x) => x.name)).toEqual(['Bo']);

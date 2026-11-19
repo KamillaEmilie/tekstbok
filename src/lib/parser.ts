@@ -114,6 +114,8 @@ export function parseSong(
 
   for (const raw of clean(text).split('\n')) {
     if (!raw.trim()) {
+      // Et delmerke uten tekst ennå gjelder også etter en tom linje.
+      if (cur && cur.label && !cur.lines.length) continue;
       cur = null;
       continue;
     }
