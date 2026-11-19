@@ -3,7 +3,7 @@
   import { go } from '../lib/router.svelte';
   import { undoable } from '../lib/toast.svelte';
   import BackupReminder from './BackupReminder.svelte';
-  import { durationSec, formatTotal, songIdsOnly } from '../lib/types';
+  import { describeSet, durationSec, formatTotal, setSummaries, songIdsOnly } from '../lib/types';
   import { songById } from '../lib/store.svelte';
   const totalSec = (ids: string[]) => ids.reduce((a, id) => a + (durationSec(songById(id)?.duration) ?? 0), 0);
 
@@ -29,6 +29,13 @@
           {[fmt(l.date), l.venue, `${songIdsOnly(l).length} låter`, totalSec(songIdsOnly(l)) ? 'ca. ' + formatTotal(totalSec(songIdsOnly(l))) : ''].filter(Boolean).join(' · ')}
           {#if l.readyAt}<span class="ok"> · ✓ klar</span>{/if}
         </span>
+        {#if setSummaries(l, (sid) => songById(sid)?.duration).length > 1}
+          <span class="m sets">
+            {#each setSummaries(l, (sid) => songById(sid)?.duration) as st, n}
+              <span>Sett {n + 1}: {describeSet(st)}</span>
+            {/each}
+          </span>
+        {/if}
       </button>
       <button
         class="danger"
@@ -64,6 +71,11 @@
   .m {
     color: var(--muted);
     font-size: 0.85rem;
+  }
+  .sets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
   }
   .ok {
     color: var(--ok);

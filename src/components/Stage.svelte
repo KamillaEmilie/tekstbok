@@ -4,7 +4,7 @@
   import { go, replace } from '../lib/router.svelte';
   import { keepAwake, rearm, releaseAwake } from '../lib/wake';
   import { personColor } from '../lib/parser';
-  import { LAYOUTS, LAYOUT_NAMES, MARKER_NAMES, MODE_NAMES, MODE_ROLES, isMarker, type Marker, type Song } from '../lib/types';
+  import { LAYOUTS, LAYOUT_NAMES, MARKER_NAMES, MODE_NAMES, MODE_ROLES, describeSet, isMarker, setSummaries, type Marker, type Song } from '../lib/types';
   import Lyrics from './Lyrics.svelte';
 
   let { setlistId, songId, index }: { setlistId: string | null; songId: string | null; index: number } = $props();
@@ -255,6 +255,14 @@
     <div class="overlay" onclick={(e) => e.target === e.currentTarget && (showList = false)} role="presentation">
       <div class="box">
         <h2>{setlist?.name ?? 'Låter'}</h2>
+        {#if setlist}
+          {@const sets = setSummaries(setlist, (sid) => songById(sid)?.duration)}
+          {#if sets.length > 1 || sets[0]?.sec}
+            <div class="setsum">
+              {#each sets as st, n}<span>{sets.length > 1 ? `Sett ${n + 1}: ` : ''}{describeSet(st)}</span>{/each}
+            </div>
+          {/if}
+        {/if}
         {#each items as it, i (it.id)}
           <button
             class="ghost li"
@@ -459,6 +467,13 @@
   }
   .l-marker .body {
     padding-bottom: 20vh;
+  }
+  .setsum {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    color: #9a958c;
+    margin-bottom: 8px;
   }
   .li.mk {
     color: #9a958c !important;

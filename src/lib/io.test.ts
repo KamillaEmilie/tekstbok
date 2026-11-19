@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { convertPrototype, makeBundle, mergeBundle, summarize, validateBundle } from './io';
-import { durationSec, formatTotal, type Singer, type Song } from './types';
+import { describeSet, durationSec, formatTotal, setSummaries, type Singer, type Song } from './types';
 
 const song = (id: string, updatedAt: number, title = id): Song => ({ id, title, mode: 'solo', layout: 'scroll', text: 'la la', updatedAt });
 const singers: Singer[] = [{ id: 'a', name: 'Anna', color: '#f00' }];
@@ -75,5 +75,22 @@ describe('varighet', () => {
     expect(durationSec('tja')).toBeNull();
     expect(formatTotal(3125)).toBe('52 min');
     expect(formatTotal(4000)).toBe('1 t 7 min');
+  });
+});
+
+describe('sett', () => {
+  it('deler ved pause, ikke ved prat, og summerer tid', () => {
+    const dur: Record<string, string> = { a: '3:00', b: '4:00', c: '2:30', d: '' };
+    const l = {
+      songIds: ['m:p0', 'a', 'm:prat', 'b', 'm:p1', 'c', 'd', 'm:p2'],
+      markers: { 'm:p0': { kind: 'pause' as const, text: '' }, 'm:prat': { kind: 'prat' as const, text: '' }, 'm:p1': { kind: 'pause' as const, text: '' }, 'm:p2': { kind: 'pause' as const, text: '' } },
+    };
+    const sets = setSummaries(l, (id) => dur[id]);
+    expect(sets).toEqual([
+      { songs: 2, sec: 420, missing: 0 },
+      { songs: 2, sec: 150, missing: 1 },
+    ]);
+    expect(describeSet(sets[0])).toBe('2 låter · ca. 7 min');
+    expect(describeSet(sets[1])).toBe('2 låter · ca. 3 min · 1 uten tid');
   });
 });

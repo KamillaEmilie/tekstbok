@@ -7,7 +7,7 @@
   import { keepAwake } from '../lib/wake';
   import { bundleFilename, makeBundle, shareOrDownload } from '../lib/io';
   import BackupReminder from './BackupReminder.svelte';
-  import { MARKER_NAMES, durationSec, formatTotal, isMarker, newMarkerId, songIdsOnly, type MarkerKind } from '../lib/types';
+  import { MARKER_NAMES, describeSet, durationSec, formatTotal, isMarker, newMarkerId, setSummaries, songIdsOnly, type MarkerKind } from '../lib/types';
 
   let { id }: { id: string } = $props();
   const l = $derived(setlistById(id));
@@ -53,6 +53,22 @@
       else sec += d;
     }
     return { sec, missing };
+  });
+
+  const sets = $derived(l ? setSummaries(l, (sid) => songById(sid)?.duration) : []);
+  /** Hvilket sett hver pause avslutter (1, 2, …), for etiketten i pause-raden. */
+  const pauseEnds = $derived.by(() => {
+    const out: Record<string, number> = {};
+    let n = 0;
+    let songsInSet = 0;
+    for (const sid of l?.songIds ?? []) {
+      if (!isMarker(sid)) songsInSet++;
+      else if (l?.markers?.[sid]?.kind === 'pause' && songsInSet) {
+        out[sid] = ++n;
+        songsInSet = 0;
+      }
+    }
+    return out;
   });
 
   let lastAdded = $state<string | null>(null);
@@ -291,6 +307,15 @@
       </div>
     {/if}
 
+    {#if sets.length > 1}
+      <div class="card sets">
+        {#each sets as st, n}
+          <div class="setrow"><b>Sett {n + 1}</b><span>{describeSet(st)}</span></div>
+        {/each}
+        <div class="setrow total"><b>Totalt</b><span>{describeSet({ songs: songCount, sec: total.sec, missing: total.missing })}</span></div>
+      </div>
+    {/if}
+
     <div class="list" bind:this={listEl}>
       {#each l.songIds as sid, i (sid)}
         {@const s = isMarker(sid) ? undefined : songById(sid)}
@@ -305,6 +330,9 @@
           >
           {#if mk}
             <div class="mbody">
+              {#if mk.kind === 'pause' && pauseEnds[sid] && sets[pauseEnds[sid] - 1]}
+                <div class="setend">↑ Sett {pauseEnds[sid]}: {describeSet(sets[pauseEnds[sid] - 1])}</div>
+              {/if}
               <div class="bar">
                 {#each ['pause', 'prat'] as const as k}
                   <button class="kind" class:on={mk.kind === k} onclick={() => setKind(sid, k)}
@@ -459,6 +487,30 @@
   .kind {
     min-height: 36px;
     padding: 0.3em 0.8em;
+  }
+  .sets {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 14px;
+  }
+  .setrow {
+    display: flex;
+    gap: 14px;
+    align-items: baseline;
+  }
+  .setrow b {
+    min-width: 4.5em;
+  }
+  .setrow.total {
+    border-top: 1px solid var(--line);
+    padding-top: 6px;
+    margin-top: 2px;
+    color: var(--muted);
+  }
+  .setend {
+    color: var(--muted);
+    font-size: 0.85rem;
   }
   .warn {
     color: var(--bad);

@@ -114,3 +114,33 @@ export const MARKER_NAMES: Record<MarkerKind, string> = { pause: 'Pause', prat: 
 
 /** Bare låtene i settlisten, uten skiller. */
 export const songIdsOnly = (l: Pick<Setlist, 'songIds'>) => l.songIds.filter((id) => !isMarker(id));
+
+export type SetSummary = { songs: number; sec: number; missing: number };
+
+/** Deler settlisten i sett ved hver pause, og summerer antall låter og tid per sett. Prat deler ikke. */
+export function setSummaries(
+  l: Pick<Setlist, 'songIds' | 'markers'>,
+  durationOf: (songId: string) => string | undefined,
+): SetSummary[] {
+  const sets: SetSummary[] = [{ songs: 0, sec: 0, missing: 0 }];
+  for (const id of l.songIds) {
+    if (isMarker(id)) {
+      if (l.markers?.[id]?.kind === 'pause') sets.push({ songs: 0, sec: 0, missing: 0 });
+      continue;
+    }
+    const cur = sets[sets.length - 1];
+    cur.songs++;
+    const d = durationSec(durationOf(id));
+    if (d === null) cur.missing++;
+    else cur.sec += d;
+  }
+  return sets.filter((s) => s.songs > 0);
+}
+
+/** «6 låter · ca. 22 min» (+ hvor mange som mangler tid). */
+export function describeSet(s: SetSummary): string {
+  const parts = [`${s.songs} ${s.songs === 1 ? 'låt' : 'låter'}`];
+  if (s.sec) parts.push(`ca. ${formatTotal(s.sec)}`);
+  if (s.missing) parts.push(`${s.missing} uten tid`);
+  return parts.join(' · ');
+}
