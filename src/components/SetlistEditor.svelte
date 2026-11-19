@@ -7,6 +7,7 @@
   import { keepAwake } from '../lib/wake';
   import { bundleFilename, makeBundle, shareOrDownload } from '../lib/io';
   import BackupReminder from './BackupReminder.svelte';
+  import { MARKER_NAMES, isMarker, newMarkerId, songIdsOnly, type MarkerKind } from '../lib/types';
 
   let { id }: { id: string } = $props();
   const l = $derived(setlistById(id));
@@ -36,6 +37,37 @@
     checks = null;
     saveSetlist(l, true);
   }
+  /** Låtnummer per rad (skiller får ikke nummer). */
+  const numbers = $derived.by(() => {
+    let n = 0;
+    return (l?.songIds ?? []).map((x) => (isMarker(x) ? null : ++n));
+  });
+  const songCount = $derived(l ? songIdsOnly(l).length : 0);
+
+  let lastAdded = $state<string | null>(null);
+  function addMarker(kind: MarkerKind) {
+    if (!l) return;
+    const mid = newMarkerId();
+    l.markers = { ...(l.markers ?? {}), [mid]: { kind, text: '' } };
+    lastAdded = mid;
+    setIds([...l.songIds, mid]);
+  }
+  function setKind(mid: string, kind: MarkerKind) {
+    if (!l?.markers?.[mid]) return;
+    l.markers[mid].kind = kind;
+    saveSetlist(l);
+  }
+  /** Fokuserer tekstfeltet til et nytt skille og scroller det fram. */
+  function focusNew(node: HTMLTextAreaElement, mid: string) {
+    if (mid === lastAdded) {
+      lastAdded = null;
+      setTimeout(() => {
+        node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        node.focus({ preventScroll: true });
+      }, 50);
+    }
+  }
+
   function addSong(sid: string) {
     if (!l || l.songIds.includes(sid)) return;
     setIds([...l.songIds, sid]);
@@ -43,9 +75,10 @@
   function removeAt(i: number) {
     if (!l) return;
     const before = [...l.songIds];
-    const title = songById(before[i])?.title ?? '';
+    const id0 = before[i];
+    const title = isMarker(id0) ? MARKER_NAMES[l.markers?.[id0]?.kind ?? 'pause'].toLowerCase() : `«${songById(id0)?.title ?? ''}»`;
     setIds(before.filter((_, j) => j !== i));
-    undoable(`Fjernet «${title}» fra lista`, () => setIds(before));
+    undoable(`Fjernet ${title} fra lista`, () => setIds(before));
   }
   function move(from: number, to: number) {
     if (!l || to < 0 || to >= l.songIds.length || from === to) return;
@@ -62,6 +95,7 @@
   let dragIdx = $state<number | null>(null);
   let pointerId: number | null = null;
   let lastY = 0;
+  let startY = 0;
   let scrollTimer: ReturnType<typeof setInterval> | undefined;
   let scroller: HTMLElement | null = null;
 
@@ -93,10 +127,11 @@
     if (dragIdx === null) return;
     if (scroller) {
       const r = scroller.getBoundingClientRect();
-      const zone = 80;
+      const zone = 70;
       let dy = 0;
-      if (lastY < r.top + zone) dy = -Math.ceil((r.top + zone - lastY) / 6);
-      else if (lastY > r.bottom - zone) dy = Math.ceil((lastY - (r.bottom - zone)) / 6);
+      // Bare når fingeren er dratt mot kanten (ikke om man tar tak i en rad som allerede ligger ved kanten).
+      if (lastY < r.top + zone && lastY < startY - 20) dy = -Math.ceil((r.top + zone - lastY) / 8);
+      else if (lastY > r.bottom - zone && lastY > startY + 20) dy = Math.ceil((lastY - (r.bottom - zone)) / 8);
       if (dy) {
         scroller.scrollTop += dy;
         reorder();
@@ -116,7 +151,7 @@
     e.preventDefault();
     dragIdx = i;
     pointerId = e.pointerId;
-    lastY = e.clientY;
+    lastY = startY = e.clientY;
     scroller = listEl?.closest('main') ?? null;
     window.addEventListener('pointermove', onMove, { passive: false });
     window.addEventListener('pointerup', endDrag);
@@ -184,7 +219,7 @@
       <button class="ghost" onclick={() => go('setlists')}>‹ Settlister</button>
       <span style="flex:1"></span>
       <button onclick={exportList}>Del / eksporter</button>
-      <button class="primary" onclick={() => start(0)} disabled={!l.songIds.length}>▶ Scenemodus</button>
+      <button class="primary" onclick={() => start(0)} disabled={!songCount}>▶ Scenemodus</button>
     </div>
     <div class="row" oninput={touchMeta}>
       <label class="f" style="flex:2">Navn<input bind:value={l.name} /></label>
@@ -220,8 +255,10 @@
     <BackupReminder />
 
     <div class="bar">
-      <h2>Låter ({l.songIds.length})</h2>
+      <h2>Låter ({songCount})</h2>
       <span style="flex:1"></span>
+      <button onclick={() => addMarker('pause')}>+ Pause</button>
+      <button onclick={() => addMarker('prat')}>+ Prat</button>
       <button class:on={adding} onclick={() => (adding = !adding)}>{adding ? 'Ferdig' : '+ Legg til låter'}</button>
     </div>
 
@@ -242,8 +279,9 @@
 
     <div class="list" bind:this={listEl}>
       {#each l.songIds as sid, i (sid)}
-        {@const s = songById(sid)}
-        <div class="srow" class:dragging={dragIdx === i}>
+        {@const s = isMarker(sid) ? undefined : songById(sid)}
+        {@const mk = isMarker(sid) ? l.markers?.[sid] : undefined}
+        <div class="srow" class:dragging={dragIdx === i} class:marker={!!mk} class:pause={mk?.kind === 'pause'}>
           <span
             class="handle"
             role="button"
@@ -251,12 +289,31 @@
             aria-label="Dra for å flytte"
             onpointerdown={(e) => down(e, i)}>☰</span
           >
-          <span class="n">{i + 1}</span>
-          <button class="ghost t" onclick={() => s && go('song/' + s.id)}>
-            {s?.title || '(mangler)'}
-            {#if s && !s.text.trim()}<span class="warn">mangler tekst</span>{/if}
-            <span class="hint">{[s?.key, s?.bpm && s.bpm + ' BPM'].filter(Boolean).join(' · ')}</span>
-          </button>
+          {#if mk}
+            <div class="mbody">
+              <div class="bar">
+                {#each ['pause', 'prat'] as const as k}
+                  <button class="kind" class:on={mk.kind === k} onclick={() => setKind(sid, k)}
+                    >{k === 'pause' ? '⏸ Pause' : '💬 Prat'}</button
+                  >
+                {/each}
+              </div>
+              <textarea
+                rows="2"
+                bind:value={mk.text}
+                oninput={touchMeta}
+                use:focusNew={sid}
+                placeholder={mk.kind === 'pause' ? 'Notat til pausen (valgfritt), f.eks. «15 min – tilbake 21:30»' : 'Hva skal vi si? F.eks. «Takk til arrangøren, presenter bandet»'}
+              ></textarea>
+            </div>
+          {:else}
+            <span class="n">{numbers[i]}</span>
+            <button class="ghost t" onclick={() => s && go('song/' + s.id)}>
+              {s?.title || '(mangler)'}
+              {#if s && !s.text.trim()}<span class="warn">mangler tekst</span>{/if}
+              <span class="hint">{[s?.key, s?.bpm && s.bpm + ' BPM'].filter(Boolean).join(' · ')}</span>
+            </button>
+          {/if}
           <button onclick={() => start(i)} aria-label="Start her">▶</button>
           <button onclick={() => removeAt(i)} aria-label="Fjern fra lista">✕</button>
         </div>
@@ -264,6 +321,11 @@
         <p class="empty">Lista er tom. Trykk «+ Legg til låter».</p>
       {/each}
     </div>
+    {#if l.songIds.length}
+      <p class="hint" style="margin:0">
+        «+ Pause» og «+ Prat» legges nederst. Dra dem med ☰ dit de skal stå. I scenemodus får de en egen side mellom låtene.
+      </p>
+    {/if}
 
     <div class="bar">
       <span style="flex:1"></span>
@@ -354,6 +416,35 @@
     align-items: baseline;
     flex-wrap: wrap;
     font-size: 1.05rem;
+  }
+  .srow.marker {
+    background: transparent;
+    border: 1px dashed #555;
+    align-items: flex-start;
+  }
+  .srow.marker.pause {
+    border: 2px solid var(--muted);
+    background: #181818;
+  }
+  .srow.marker.dragging {
+    border-color: var(--acc);
+  }
+  .mbody {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 0;
+    min-width: 0;
+  }
+  .mbody textarea {
+    min-height: 44px;
+    resize: vertical;
+    line-height: 1.4;
+  }
+  .kind {
+    min-height: 36px;
+    padding: 0.3em 0.8em;
   }
   .warn {
     color: var(--bad);

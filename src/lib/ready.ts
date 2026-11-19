@@ -1,4 +1,4 @@
-import type { Setlist, Song } from './types';
+import { songIdsOnly, type Setlist, type Song } from './types';
 
 export type Check = { ok: boolean; label: string; detail?: string };
 
@@ -46,14 +46,15 @@ export async function checkReady(setlist: Setlist, songs: Song[]): Promise<Check
 
   // 3. Låtene
   const byId = new Map(songs.map((s) => [s.id, s]));
-  const listed = setlist.songIds.map((id) => byId.get(id));
+  const ids = songIdsOnly(setlist);
+  const listed = ids.map((id) => byId.get(id));
   const missingSongs = listed.filter((s) => !s).length;
   const empty = listed.filter((s): s is Song => !!s && !s.text.trim());
-  if (!setlist.songIds.length) checks.push({ ok: false, label: 'Settlisten er tom' });
+  if (!ids.length) checks.push({ ok: false, label: 'Settlisten er tom' });
   else if (missingSongs) checks.push({ ok: false, label: `${missingSongs} låt(er) finnes ikke lenger i biblioteket` });
   if (empty.length)
     checks.push({ ok: false, label: `${empty.length} låt(er) mangler tekst`, detail: empty.map((s) => s.title || '(uten tittel)').join(', ') });
-  else if (setlist.songIds.length && !missingSongs) checks.push({ ok: true, label: setlist.songIds.length === 1 ? 'Låten har tekst' : `Alle ${setlist.songIds.length} låtene har tekst` });
+  else if (ids.length && !missingSongs) checks.push({ ok: true, label: ids.length === 1 ? 'Låten har tekst' : `Alle ${ids.length} låtene har tekst` });
 
   // 4. Lagring
   let persisted = false;

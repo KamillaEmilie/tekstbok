@@ -3,6 +3,7 @@
   import { go } from '../lib/router.svelte';
   import { undoable } from '../lib/toast.svelte';
   import BackupReminder from './BackupReminder.svelte';
+  import { songIdsOnly } from '../lib/types';
 
   function add() {
     const l = newSetlist();
@@ -23,7 +24,7 @@
       <button class="main ghost" onclick={() => go('setlist/' + l.id)}>
         <span class="t">{l.name || '(uten navn)'}</span>
         <span class="m">
-          {[fmt(l.date), l.venue, `${l.songIds.length} låter`].filter(Boolean).join(' · ')}
+          {[fmt(l.date), l.venue, `${songIdsOnly(l).length} låter`].filter(Boolean).join(' · ')}
           {#if l.readyAt}<span class="ok"> · ✓ klar</span>{/if}
         </span>
       </button>

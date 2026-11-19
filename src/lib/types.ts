@@ -21,12 +21,19 @@ export type Song = {
   updatedAt: number;
 };
 
+/** Skille i settlisten: pause, eller notat om hva vi skal si mellom låtene. */
+export type MarkerKind = 'pause' | 'prat';
+export type Marker = { kind: MarkerKind; text: string };
+
 export type Setlist = {
   id: string;
   name: string;
   date?: string;
   venue?: string;
+  /** Rekkefølgen. Inneholder låt-id-er og skille-id-er (som starter med «m:»). */
   songIds: string[];
+  /** Innholdet i skillene, slått opp på id. */
+  markers?: Record<string, Marker>;
   readyAt?: number;
   updatedAt?: number;
 };
@@ -81,3 +88,11 @@ export const DEFAULT_SINGERS: Singer[] = [
 ];
 
 export const EXTRA_COLORS = ['#5fb7ff', '#c3a6ff', '#ff9f5a', '#4fe0d2', '#ff6b6b'];
+
+export const MARKER_PREFIX = 'm:';
+export const isMarker = (id: string) => id.startsWith(MARKER_PREFIX);
+export const newMarkerId = () => MARKER_PREFIX + uid();
+export const MARKER_NAMES: Record<MarkerKind, string> = { pause: 'Pause', prat: 'Prat' };
+
+/** Bare låtene i settlisten, uten skiller. */
+export const songIdsOnly = (l: Pick<Setlist, 'songIds'>) => l.songIds.filter((id) => !isMarker(id));

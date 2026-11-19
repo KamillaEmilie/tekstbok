@@ -4,20 +4,36 @@
   import { go, replace } from '../lib/router.svelte';
   import { keepAwake, rearm, releaseAwake } from '../lib/wake';
   import { personColor } from '../lib/parser';
-  import { LAYOUTS, LAYOUT_NAMES, MODE_NAMES, MODE_ROLES, type Song } from '../lib/types';
+  import { LAYOUTS, LAYOUT_NAMES, MARKER_NAMES, MODE_NAMES, MODE_ROLES, isMarker, type Marker, type Song } from '../lib/types';
   import Lyrics from './Lyrics.svelte';
 
   let { setlistId, songId, index }: { setlistId: string | null; songId: string | null; index: number } = $props();
 
   const setlist = $derived(setlistId ? setlistById(setlistId) : undefined);
-  const songs = $derived.by((): Song[] => {
-    if (setlist) return setlist.songIds.map((id) => songById(id)).filter((s): s is Song => !!s);
+  /** Det som vises én side om gangen: låter og skiller (pause/prat). no = låtnummer. */
+  type Item = { id: string; song?: Song; marker?: Marker; no?: number };
+  const items = $derived.by((): Item[] => {
+    if (setlist) {
+      let n = 0;
+      return setlist.songIds.flatMap((id): Item[] => {
+        if (isMarker(id)) {
+          const m = setlist.markers?.[id];
+          return m ? [{ id, marker: m }] : [];
+        }
+        const s = songById(id);
+        return s ? [{ id, song: s, no: ++n }] : [];
+      });
+    }
     const s = songId ? songById(songId) : undefined;
-    return s ? [s] : [];
+    return s ? [{ id: s.id, song: s, no: 1 }] : [];
   });
+  const songCount = $derived(items.filter((i) => i.song).length);
   // svelte-ignore state_referenced_locally
   let cur = $state(index);
-  const song = $derived(songs[Math.min(cur, songs.length - 1)]);
+  const item = $derived(items[Math.min(cur, items.length - 1)]);
+  const song = $derived(item?.song);
+  const marker = $derived(item?.marker);
+  const nextSong = $derived(items.slice(cur + 1).find((i) => i.song)?.song);
   const light = $derived(store.settings.light);
   let showList = $state(false);
 
@@ -39,7 +55,7 @@
   );
 
   function goTo(n: number) {
-    if (n < 0 || n >= songs.length || n === cur) return;
+    if (n < 0 || n >= items.length || n === cur) return;
     cur = n;
     if (setlistId) replace(`stage/${setlistId}/${n}`);
     if (box) box.scrollTop = 0;
@@ -165,24 +181,38 @@
 </script>
 
 <div
-  class="stage l-{song?.layout ?? 'scroll'}"
+  class="stage l-{song ? song.layout : 'marker'}"
   class:light
   ontouchstart={tStart}
   ontouchend={tEnd}
   onpointerdown={rearm}
   role="application"
 >
-  {#if !song}
+  {#if !item}
     <div class="nothing">
       <p>Ingen låter å vise.</p>
       <button onclick={close}>Lukk</button>
     </div>
-  {:else}
+  {:else if marker}
+    <header>
+      <div class="top">
+        <span class="title">{MARKER_NAMES[marker.kind]}</span>
+        <span class="meta"></span>
+      </div>
+    </header>
+    <div class="body" bind:this={box}>
+      <div class="marker {marker.kind}" style:font-size="{Math.round(34 * store.settings.scale)}px">
+        {#if marker.kind === 'pause'}<div class="big">Pause</div>{/if}
+        {#if marker.text.trim()}<div class="mtext">{marker.text}</div>{/if}
+        {#if nextSong}<div class="next">Neste låt: <b>{nextSong.title || '(uten tittel)'}</b></div>{/if}
+      </div>
+    </div>
+  {:else if song}
     <header>
       <div class="top">
         <span class="title">{song.title || '(uten tittel)'}</span>
         <span class="meta">{meta}</span>
-        <span class="pos">{cur + 1} / {songs.length}</span>
+        <span class="pos">{item.no} / {songCount}</span>
       </div>
       {#if roles.length || song.notes}
         <div class="legend">
@@ -202,18 +232,20 @@
         <Lyrics {song} singers={store.singers} {light} bind:el />
       {/key}
     </div>
+  {/if}
+  {#if item}
     <footer>
       <button class="nav" onclick={prev} disabled={cur === 0}>◀ Forrige</button>
-      <button class="nav" onclick={next} disabled={cur >= songs.length - 1}>Neste ▶</button>
+      <button class="nav" onclick={next} disabled={cur >= items.length - 1}>Neste ▶</button>
       <span class="sp"></span>
-      <button onclick={cycleLayout}>{LAYOUT_NAMES[song.layout]}</button>
+      {#if song}<button onclick={cycleLayout}>{LAYOUT_NAMES[song.layout]}</button>{/if}
       <button onclick={smaller} aria-label="Mindre skrift">A−</button>
       <button onclick={bigger} aria-label="Større skrift">A+</button>
       <button onclick={toggleLight}>{light ? 'Mørk' : 'Lys'}</button>
-      {#if songs.length > 1}<button onclick={() => (showList = true)}>Liste</button>{/if}
+      {#if items.length > 1}<button onclick={() => (showList = true)}>Liste</button>{/if}
       <button onclick={close}>Lukk</button>
     </footer>
-    {#if songs.length > 1}
+    {#if items.length > 1}
       <button class="tap left" aria-label="Forrige låt" onclick={prev}></button>
       <button class="tap right" aria-label="Neste låt" onclick={next}></button>
     {/if}
@@ -223,14 +255,18 @@
     <div class="overlay" onclick={(e) => e.target === e.currentTarget && (showList = false)} role="presentation">
       <div class="box">
         <h2>{setlist?.name ?? 'Låter'}</h2>
-        {#each songs as s, i (s.id)}
+        {#each items as it, i (it.id)}
           <button
             class="ghost li"
             class:cur={i === cur}
+            class:mk={!!it.marker}
             onclick={() => {
               goTo(i);
               showList = false;
-            }}>{i + 1}. {s.title || '(uten tittel)'}</button
+            }}
+            >{#if it.song}{it.no}. {it.song.title || '(uten tittel)'}{:else if it.marker}{it.marker.kind === 'pause' ? '⏸ Pause' : '💬 Prat'}{#if it.marker.text.trim()}<span
+                  class="mprev">– {it.marker.text.trim().split('\n')[0]}</span
+                >{/if}{/if}</button
           >
         {/each}
       </div>
@@ -395,6 +431,41 @@
   .li.cur {
     color: #ffc94a !important;
     font-weight: 700;
+  }
+  .marker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    max-width: 30em;
+    line-height: 1.35;
+  }
+  .marker .big {
+    font-size: 2.6em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .marker .mtext {
+    white-space: pre-wrap;
+    border-left: 5px solid var(--muted);
+    padding-left: 0.6em;
+  }
+  .marker .next {
+    color: var(--muted);
+    font-size: 0.75em;
+  }
+  .marker .next b {
+    color: var(--fg);
+  }
+  .l-marker .body {
+    padding-bottom: 20vh;
+  }
+  .li.mk {
+    color: #9a958c !important;
+    font-size: 1.05rem;
+  }
+  .mprev {
+    margin-left: 0.4em;
   }
   .nothing {
     margin: auto;

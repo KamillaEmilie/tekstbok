@@ -24,6 +24,17 @@ describe('makeBundle', () => {
   });
 });
 
+describe('skiller i settlisten', () => {
+  it('pause og prat blir med ved eksport og import', () => {
+    const list = { id: 'l', name: 'Jobb', songIds: ['1', 'm:a', '2', 'm:b'], markers: { 'm:a': { kind: 'pause' as const, text: '15 min' }, 'm:b': { kind: 'prat' as const, text: 'Takk!' } } };
+    const b = makeBundle({ songs: [song('1', 1), song('2', 1)], setlists: [list], singers }, 'l');
+    expect(b.songs.map((s) => s.id)).toEqual(['1', '2']);
+    const back = validateBundle(JSON.parse(JSON.stringify(b)));
+    expect(back.setlists[0].songIds).toEqual(['1', 'm:a', '2', 'm:b']);
+    expect(back.setlists[0].markers).toEqual({ 'm:a': { kind: 'pause', text: '15 min' }, 'm:b': { kind: 'prat', text: 'Takk!' } });
+  });
+});
+
 describe('validateBundle', () => {
   it('avviser filer som ikke er tekstbok-filer', () => {
     expect(() => validateBundle({ foo: 1 })).toThrow();

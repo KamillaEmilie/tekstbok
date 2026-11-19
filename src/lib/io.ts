@@ -1,4 +1,4 @@
-import { EXTRA_COLORS, uid, type Layout, type Setlist, type Singer, type Song, type VocalMode } from './types';
+import { EXTRA_COLORS, uid, type Layout, type Marker, type Setlist, type Singer, type Song, type VocalMode } from './types';
 
 export type Bundle = {
   format: 'tekstbok';
@@ -48,6 +48,7 @@ export function validateBundle(x: unknown): Bundle {
       date: l.date ? String(l.date) : undefined,
       venue: l.venue ? String(l.venue) : undefined,
       songIds: Array.isArray(l.songIds) ? l.songIds.map(String) : [],
+      markers: readMarkers(l.markers),
       updatedAt: typeof l.updatedAt === 'number' ? l.updatedAt : 0,
     }));
   const singers = arr('singers')
@@ -60,6 +61,15 @@ export function validateBundle(x: unknown): Bundle {
       updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : 0,
     }));
   return { format: 'tekstbok', version: 1, exportedAt: Number(x.exportedAt) || 0, songs, setlists, singers };
+}
+
+function readMarkers(x: unknown): Record<string, Marker> | undefined {
+  if (!isObj(x)) return undefined;
+  const out: Record<string, Marker> = {};
+  for (const [k, v] of Object.entries(x)) {
+    if (isObj(v)) out[k] = { kind: v.kind === 'prat' ? 'prat' : 'pause', text: str(v.text) };
+  }
+  return out;
 }
 
 const MODES: VocalMode[] = ['solo', 'duett', 'koring'];
