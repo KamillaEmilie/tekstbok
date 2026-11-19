@@ -60,9 +60,9 @@
         ['[Vers | HV]', `Vers · ${nameOf('hv')}`],
         ['[Vers | HV2]', `Vers · ${nameOf('hv2')}`],
         ['[Refreng | Begge]', 'Refreng · Begge'],
-        ['(HV) ', `Linje · ${nameOf('hv')}`],
-        ['(HV2) ', `Linje · ${nameOf('hv2')}`],
-        ['(Begge) ', 'Linje · Begge'],
+        ['(HV) ', `HV · ${nameOf('hv')}`],
+        ['(HV2) ', `HV2 · ${nameOf('hv2')}`],
+        ['(Begge) ', 'Begge'],
       ];
     if (song.mode === 'koring')
       return [
@@ -70,21 +70,49 @@
         ['[Vers | HV]', `Vers · ${nameOf('hv')}`],
         ['[Refreng | HV+K1+K2]', 'Refreng · Alle'],
         ['[Bro | HV+K1]', `Bro · ${nameOf('hv')}+${nameOf('k1')}`],
-        ['(K1) ', `Linje · ${nameOf('k1')}`],
-        ['(K2) ', `Linje · ${nameOf('k2')}`],
-        ['(K1+K2) ', `Linje · ${nameOf('k1')}+${nameOf('k2')}`],
+        ['(K1) ', `K1 · ${nameOf('k1')}`],
+        ['(K2) ', `K2 · ${nameOf('k2')}`],
+        ['(K1+K2) ', `K1+K2 · ${nameOf('k1')}+${nameOf('k2')}`],
       ];
     return base;
   });
 
+  // Husk siste markering i tekstfeltet (på iPad kan et trykk på en knapp fjerne fokus).
+  let sel = { s: 0, e: 0 };
+  function remember() {
+    if (ta && document.activeElement === ta) sel = { s: ta.selectionStart, e: ta.selectionEnd };
+  }
+  $effect(() => {
+    document.addEventListener('selectionchange', remember);
+    return () => document.removeEventListener('selectionchange', remember);
+  });
+
+  /** Pakker markert tekst inn i «{K1: …}», linje for linje, med mellomrom utenfor klammene. */
+  function wrapSelection(code: string, text: string): string {
+    return text
+      .split('\n')
+      .map((line) => {
+        const m = line.match(/^(\s*)(.*?)(\s*)$/)!;
+        return m[2] ? `${m[1]}{${code}: ${m[2]}}${m[3]}` : line;
+      })
+      .join('\n');
+  }
+
   async function insert(v: string) {
     if (!song || !ta) return;
     const t = song.text;
-    const s = ta.selectionStart ?? t.length;
-    const e = ta.selectionEnd ?? s;
+    const focused = document.activeElement === ta;
+    const s = focused ? ta.selectionStart : Math.min(sel.s, t.length);
+    const e = focused ? ta.selectionEnd : Math.min(sel.e, t.length);
     let next: string;
     let caret: number;
-    if (v.startsWith('[')) {
+    if (v.startsWith('(') && e > s) {
+      // Markerte ord: merk bare dem.
+      const code = v.slice(1, v.indexOf(')'));
+      const wrapped = wrapSelection(code, t.slice(s, e));
+      next = t.slice(0, s) + wrapped + t.slice(e);
+      caret = s + wrapped.length;
+    } else if (v.startsWith('[')) {
       // Delmerke på egen linje, med tom linje foran.
       const before = t.slice(0, s);
       const pre = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : '';
@@ -194,15 +222,29 @@
 
       <label class="f"
         >Tekst
-        <textarea bind:this={ta} bind:value={song.text} onpaste={onPaste} placeholder="Lim inn eller skriv teksten her" spellcheck="false"
+        <textarea
+          bind:this={ta}
+          bind:value={song.text}
+          onpaste={onPaste}
+          onselect={remember}
+          onkeyup={remember}
+          onpointerup={remember}
+          onblur={() => ta && (sel = { s: ta.selectionStart, e: ta.selectionEnd })}
+          placeholder="Lim inn eller skriv teksten her" spellcheck="false"
         ></textarea>
       </label>
       <div class="bar">
         <span class="hint">Sett inn ved markøren:</span>
         {#each buttons as [v, label]}
-          <button type="button" onclick={() => insert(v)}>{label}</button>
+          <button type="button" onpointerdown={(e) => e.preventDefault()} onclick={() => insert(v)}>{label}</button>
         {/each}
       </div>
+      {#if song.mode !== 'solo'}
+        <p class="hint" style="margin:0">
+          Marker ord i teksten og trykk på en vokalist for å merke bare de ordene, f.eks. <code>{'{K1: yeah, yeah}'}</code>. Uten
+          markering gjelder det hele linjen.
+        </p>
+      {/if}
       <div class="bar">
         <button type="button" onclick={auto}>Del opp automatisk</button>
         <span style="flex:1"></span>
@@ -220,6 +262,10 @@
         </p>
         <p>
           Enkeltlinjer merker du med f.eks. <code>(K1)</code> eller <code>(Kamilla)</code> først på linjen. Det overstyrer delen.
+        </p>
+        <p>
+          Bare noen ord, f.eks. koring midt i en linje: <code>{"I'm still standing {K1+K2: yeah, yeah, yeah}"}</code>. Bare ordene i
+          klammene får koristens farge.
         </p>
         <p>
           Linjer som starter med «Source:» eller «Songwriters:», og linjer med «lyrics ©», «LyricFind» eller «Musixmatch», fjernes automatisk.

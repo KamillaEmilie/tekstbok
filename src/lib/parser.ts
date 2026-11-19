@@ -38,7 +38,9 @@ export function autoSplit(text: string): string {
 
 export type Person = { id?: string; name: string; color?: string };
 export type Who = { people: Person[]; all: boolean };
-export type ParsedLine = { text: string; who: Who | null; repeated: boolean };
+/** En bit av en linje. who ≠ null betyr at bare denne biten synges av andre (f.eks. koring). */
+export type Part = { text: string; who: Who | null };
+export type ParsedLine = { text: string; who: Who | null; repeated: boolean; parts: Part[] };
 export type ParsedSection = { label: string; who: Who | null; chorus: boolean; lines: ParsedLine[] };
 export type ParsedSong = { sections: ParsedSection[]; marked: boolean };
 
@@ -99,6 +101,27 @@ export function resolveWho(
 }
 
 const LABEL = /^\s*\[(.+)\]\s*$/;
+/** «{K1: ord}» eller «{Siri+Leif: ord}» midt i en linje. */
+const INLINE = /\{([^{}:]+):\s*([^{}]*)\}/g;
+
+/** Deler en linje i biter, der «{hvem: ord}» blir egne biter. Ukjent «hvem» lar teksten stå som den er. */
+export function splitInline(
+  line: string,
+  roles: Partial<Record<RoleCode, string>>,
+  singers: Singer[],
+): Part[] {
+  const parts: Part[] = [];
+  let last = 0;
+  for (const m of line.matchAll(INLINE)) {
+    const who = resolveWho(m[1], roles, singers, true);
+    if (!who) continue;
+    if (m.index! > last) parts.push({ text: line.slice(last, m.index), who: null });
+    parts.push({ text: m[2], who });
+    last = m.index! + m[0].length;
+  }
+  if (last < line.length) parts.push({ text: line.slice(last), who: null });
+  return parts.length ? parts : [{ text: line, who: null }];
+}
 const LINE_WHO = /^\s*\(([^)]+)\)\s*(.*)$/;
 const CHORUS = /refreng|chorus|^\s*ref\b|^\s*kor\b/i;
 
@@ -107,7 +130,7 @@ export function parseSong(
   roles: Partial<Record<RoleCode, string>>,
   singers: Singer[],
 ): ParsedSong {
-  type Raw = { label: string; whoStr: string; lines: { text: string; who: Who | null }[] };
+  type Raw = { label: string; whoStr: string; lines: { text: string; who: Who | null; parts: Part[] }[] };
   const raws: Raw[] = [];
   let cur: Raw | null = null;
   let marked = false;
@@ -133,12 +156,10 @@ export function parseSong(
     }
     const lm = raw.match(LINE_WHO);
     const lw = lm ? resolveWho(lm[1], roles, singers, true) : null;
-    if (lm && lw) {
-      marked = true;
-      cur.lines.push({ text: lm[2], who: lw });
-    } else {
-      cur.lines.push({ text: raw.trim(), who: null });
-    }
+    const body = lm && lw ? lm[2] : raw.trim();
+    const parts = splitInline(body, roles, singers);
+    if (lw || parts.some((p) => p.who)) marked = true;
+    cur.lines.push({ text: parts.map((p) => p.text).join(''), who: lw, parts });
   }
 
   const cnt = new Map<string, number>();
@@ -153,6 +174,7 @@ export function parseSong(
       lines: r.lines.map((l) => ({
         text: l.text,
         who: l.who,
+        parts: l.parts,
         repeated: !marked && norm(l.text) !== '' && (cnt.get(norm(l.text)) ?? 0) > 1,
       })),
     };

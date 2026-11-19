@@ -55,6 +55,35 @@ describe('parseSong', () => {
     expect(p.sections.map((s) => s.label)).toEqual(['Instrumental', 'Outro']);
   });
 
+  it('merker bare enkeltord som koring med {K1: ord}', () => {
+    const p = parseSong("I'm still standing {K1+K2: (yeah, yeah, yeah)}", roles, singers);
+    const ln = p.sections[0].lines[0];
+    expect(ln.who).toBeNull();
+    expect(ln.text).toBe("I'm still standing (yeah, yeah, yeah)");
+    expect(ln.parts.map((x) => [x.text, x.who?.people.map((q) => q.id) ?? null])).toEqual([
+      ["I'm still standing ", null],
+      ['(yeah, yeah, yeah)', ['b', 'c']],
+    ]);
+    expect(p.marked).toBe(true);
+  });
+
+  it('flere koringsbiter i samme linje, også med navn', () => {
+    const p = parseSong('{Anna: hei} og {K2: hå} igjen', roles, singers);
+    expect(p.sections[0].lines[0].parts.map((x) => x.who?.people[0]?.id ?? null)).toEqual(['a', null, 'c', null]);
+  });
+
+  it('lar krøllparentes med ukjent navn stå urørt', () => {
+    const p = parseSong('noe {Ukjent: tekst} her', roles, singers);
+    expect(p.sections[0].lines[0].parts).toEqual([{ text: 'noe {Ukjent: tekst} her', who: null }]);
+  });
+
+  it('linjemerke og koringsbit kan kombineres', () => {
+    const p = parseSong('(HV) jeg synger {K1: du korer}', roles, singers);
+    const ln = p.sections[0].lines[0];
+    expect(ln.who?.people[0].id).toBe('a');
+    expect(ln.parts[1].who?.people[0].id).toBe('b');
+  });
+
   it('oversetter koder til personene valgt for låten', () => {
     const p = parseSong('[Vers | K1]\nen', roles, singers);
     expect(p.sections[0].who?.people.map((x) => x.name)).toEqual(['Bo']);
