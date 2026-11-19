@@ -1,13 +1,16 @@
 import type { RoleCode, Singer, VocalMode } from './types';
 
 /** Linjer som kommer med når man limer inn fra tekstsider. */
-const JUNK = /^\s*(source:|songwriters?:|written by:)|lyrics\s*©|\blyricfind\b|\bmusixmatch\b/i;
+const JUNK =
+  /^\s*(source:|songwriters?:|written by:|lyrics provided by|lyrics licensed by|you might also like\s*$|see .+ live\s*$|get tickets|read more\s*$|translations?\s*$|\d+\s*contributors?\b)|lyrics\s*©|\blyricfind\b|\bmusixmatch\b/i;
 
 export function clean(text: string): string {
   return text
     .split(/\r?\n/)
     .filter((l) => !JUNK.test(l))
+    .map((l) => l.replace(/\d*\s*Embed\s*$/, '')) // Genius legger «123Embed» på siste linje
     .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 

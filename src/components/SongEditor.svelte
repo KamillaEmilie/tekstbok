@@ -8,6 +8,7 @@
   import { LAYOUT_NAMES, MODE_NAMES, MODE_ROLES, type Layout, type RoleCode, type VocalMode } from '../lib/types';
   import Lyrics from './Lyrics.svelte';
   import PaintView from './PaintView.svelte';
+  import { lookupDuration } from '../lib/importText';
 
   let { id }: { id: string } = $props();
   const song = $derived(songById(id));
@@ -31,6 +32,34 @@
   });
 
   let ta = $state<HTMLTextAreaElement>();
+
+  // ---- Varighet hentes automatisk fra Apple Music-katalogen når tittelen er fylt inn ----
+  let durNote = $state('');
+  let durBusy = $state(false);
+  let lastQuery = '';
+  async function fetchDuration(force = false) {
+    if (!song || (!force && song.duration?.trim())) return;
+    const q = `${song.title.trim()}|${(song.artist ?? '').trim()}`;
+    if (!song.title.trim() || (!force && q === lastQuery)) return;
+    lastQuery = q;
+    durBusy = true;
+    durNote = '';
+    const d = await lookupDuration(song.title, song.artist ?? '');
+    durBusy = false;
+    if (!song) return;
+    if (d && (force || !song.duration?.trim())) {
+      song.duration = d;
+      saveSong(song);
+      durNote = 'Hentet fra Apple Music';
+    } else if (force) durNote = navigator.onLine ? 'Fant ingen treff' : 'Krever nett';
+  }
+  let durTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    void [song?.title, song?.artist];
+    clearTimeout(durTimer);
+    if (song && !song.duration?.trim() && song.title.trim().length >= 2) durTimer = setTimeout(() => fetchDuration(), 1500);
+    return () => clearTimeout(durTimer);
+  });
   /** «Mal» er standard når låten har tekst; «Rediger tekst» for å lime inn og rette ord. */
   // svelte-ignore state_referenced_locally
   let tab = $state<'paint' | 'text'>(songById(id)?.text.trim() ? 'paint' : 'text');
@@ -198,7 +227,16 @@
         <label class="f">Toneart<input bind:value={song.key} placeholder="f.eks. G" /></label>
         <label class="f">Tempo<input bind:value={song.bpm} placeholder="BPM" inputmode="numeric" /></label>
         <label class="f">Capo<input bind:value={song.capo} inputmode="numeric" /></label>
-        <label class="f">Varighet<input bind:value={song.duration} placeholder="f.eks. 3:45" inputmode="decimal" /></label>
+        <label class="f"
+          >Varighet
+          <span class="durrow">
+            <input bind:value={song.duration} placeholder="f.eks. 3:45" inputmode="decimal" />
+            <button type="button" class="durbtn" onclick={() => fetchDuration(true)} disabled={durBusy} title="Hent varighet fra Apple Music"
+              >{durBusy ? '…' : '↻'}</button
+            >
+          </span>
+          {#if durNote}<span class="durnote">{durNote}</span>{/if}
+        </label>
       </div>
       <label class="f">Notater<input bind:value={song.notes} placeholder="f.eks. «Start med trommer»" /></label>
 
@@ -327,6 +365,17 @@
     max-width: none;
     margin: 0;
     width: 100%;
+  }
+  .durrow {
+    display: flex;
+    gap: 6px;
+  }
+  .durbtn {
+    flex: none;
+    padding: 0 12px;
+  }
+  .durnote {
+    font-size: 0.75rem;
   }
   textarea {
     min-height: 45vh;

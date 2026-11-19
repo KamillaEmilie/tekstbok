@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { store, newSong, deleteSong } from '../lib/store.svelte';
+  import { store, newSong, deleteSong, saveSong } from '../lib/store.svelte';
+  import { fromPastedText } from '../lib/importText';
   import { go } from '../lib/router.svelte';
-  import { undoable } from '../lib/toast.svelte';
+  import { toast, undoable } from '../lib/toast.svelte';
   import { keepAwake } from '../lib/wake';
 
   let q = $state('');
@@ -19,6 +20,36 @@
     const s = newSong();
     go('song/' + s.id);
   }
+  // ---- Ny låt fra utklippstavlen ----
+  let pasteOpen = $state(false);
+  let pasted = $state('');
+  async function fromClipboard() {
+    let raw = '';
+    try {
+      raw = (await navigator.clipboard?.readText?.()) ?? '';
+    } catch {
+      /* ikke tillatt eller ikke støttet: vis innlimingsfeltet */
+    }
+    if (raw.trim()) createFrom(raw);
+    else pasteOpen = true;
+  }
+  function createFrom(raw: string) {
+    const p = fromPastedText(raw);
+    if (!p.text.trim()) {
+      toast('Fant ingen tekst å lage låt av.');
+      return;
+    }
+    const s = newSong();
+    s.title = p.title;
+    s.artist = p.artist;
+    s.text = p.text;
+    saveSong(s);
+    pasteOpen = false;
+    pasted = '';
+    go('song/' + s.id);
+    toast(p.title ? `Laget «${p.title}». Sjekk tittel og artist.` : 'Låten er laget. Skriv inn tittel og artist.');
+  }
+
   function remove(id: string, title: string) {
     undoable(`Slettet «${title || 'uten tittel'}»`, deleteSong(id));
   }
@@ -29,8 +60,21 @@
     <h1>Låter</h1>
     <span class="hint">{store.songs.length} i biblioteket</span>
     <span style="flex:1"></span>
+    <button onclick={fromClipboard}>📋 Ny låt fra utklippstavlen</button>
     <button class="primary" onclick={add}>+ Ny låt</button>
   </div>
+  {#if pasteOpen}
+    <div class="card paste">
+      <b>Lim inn teksten her</b>
+      <span class="hint">Hold fingeren i feltet og velg «Lim inn». Overskrifter og «Source:»-linjer fjernes automatisk.</span>
+      <!-- svelte-ignore a11y_autofocus -->
+      <textarea bind:value={pasted} rows="6" autofocus placeholder="Lim inn sangteksten"></textarea>
+      <div class="bar">
+        <button class="primary" onclick={() => createFrom(pasted)} disabled={!pasted.trim()}>Lag låt</button>
+        <button onclick={() => ((pasteOpen = false), (pasted = ''))}>Avbryt</button>
+      </div>
+    </div>
+  {/if}
   <input type="search" placeholder="Søk i tittel, artist eller tekst" bind:value={q} />
   {#each list as s (s.id)}
     <div class="item">
@@ -58,6 +102,11 @@
 </div>
 
 <style>
+  .paste {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
   .item {
     display: flex;
     gap: 6px;
