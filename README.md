@@ -75,7 +75,7 @@ Under **Mal hvem som synger** på hver låt velger du pensel og trykker på orde
 | én synger alene | vokalistens farge |
 | dere synger sammen | hvit tekst, strek til venstre i fargene til de som synger |
 | 2. stemme | farget strek under ordene |
-| bare kor, uten hovedvokal | til høyre, i korist-fargen |
+| bare kor, uten hovedvokal | i korist-fargen, kursiv, der den står i teksten |
 
 Umalt tekst er hovedstemmen (med koring), eller dere sammen (duett). Delnavn som Vers, Refreng og Instrumental settes over hver del og har ingenting med hvem som synger å gjøre.
 

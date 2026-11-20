@@ -1,6 +1,6 @@
 <script lang="ts">
   // Fire regler: alene = vokalistens farge · sammen = hvit + farget strek til venstre ·
-  // 2. stemme = farget strek under · bare kor = til høyre i korist-fargen.
+  // 2. stemme = farget strek under · bare kor = i korist-fargen, kursiv, der den står i teksten.
   import { parseSong, personColor, vocalKind, type Part, type Person, type Who } from '../lib/parser';
   import { barStyle, colorsOf, defaultTogether, korStyle, singerInitials, underlineStyle } from '../lib/vocal';
   import { activeRoles, type Singer, type Song } from '../lib/types';
@@ -53,18 +53,18 @@
       else if (k === 'together') {
         colorsOf(p.who!.people, light).forEach((c) => bars.add(c));
         main.push({ text: p.text, style: `color:var(--fg)${ul}` });
-      } else if (k === 'kor') (p.margin ? side : main).push({ text: p.margin ? p.text.trim() : p.text, style: korStyle(p.who!.people, light) + ';font-style:italic;font-weight:700' });
+      } else if (k === 'kor') main.push({ text: p.text, style: korStyle(p.who!.people, light) + ';font-style:italic;font-weight:700' });
       else main.push({ text: p.text, style: p.text.trim() ? baseUl : '' });
     }
-    // Hele linjen er kor (f.eks. «(K1+K2) Shoot me»): flytt til høyre.
+    // Hele linjen er kor (f.eks. «(K1+K2) Shoot me»): hele linjen i korist-fargen.
     if (bk === 'kor') {
       const st = korStyle(base!.people, light) + ';font-style:italic;font-weight:700';
-      return { color: null, bar: null, right: true, main: [], side: [...main.map((m) => ({ text: m.text, style: m.style || st })), ...side], solo: null };
+      return { color: null, bar: null, right: false, main: main.map((m) => ({ text: m.text, style: m.style || st })), side: [], solo: null };
     }
     return {
       color,
       bar: barStyle([...bars]),
-      right: !main.some((m) => m.text.trim()) && side.length > 0,
+      right: false,
       main,
       side,
       solo: soloPerson ? { id: soloPerson.id, name: soloPerson.name, color: soloPerson.color } : null,

@@ -108,7 +108,7 @@
         words,
         color: bk === 'solo' ? (colorsOf(base!.people, false)[0] ?? null) : null,
         bar: allKor ? null : barStyle([...bars]),
-        right: allKor,
+        right: false,
       });
     });
     return out;

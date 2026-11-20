@@ -1,5 +1,5 @@
 // Felles fargeregler for scenevisning og malerverktøy:
-// alene = vokalistens farge · sammen = hvit + farget strek til venstre · 2. stemme = strek under · kor = til høyre.
+// alene = vokalistens farge · sammen = hvit + farget strek til venstre · 2. stemme = strek under · kor = korist-fargen, kursiv.
 import { personColor, resolveWho, type Person, type Who } from './parser';
 import type { RoleCode, Singer, VocalMode } from './types';
 
