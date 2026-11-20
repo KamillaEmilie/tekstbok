@@ -3,7 +3,7 @@
   // uavhengig av hvem som synger.
   import { tick } from 'svelte';
   import { LABEL, clean, resolveWho, vocalKind, type Who } from '../lib/parser';
-  import { lineToTokens, paintWord, readLabel, reconcile, setWordPen, wordHasPen, writeLabel, type Paint } from '../lib/paint';
+  import { lineToTokens, mergeWithAbove, paintWord, readLabel, reconcile, setWordPen, wordHasPen, writeLabel, type Paint } from '../lib/paint';
   import { barStyle, colorsOf, defaultTogether, korStyle, underlineStyle } from '../lib/vocal';
   import { activeRoles, type RoleCode, type Singer, type Song } from '../lib/types';
 
@@ -245,6 +245,22 @@
       startEdit(insert ? idx + 1 : idx, true, right, 0);
       return;
     }
+    if (e.key === 'Backspace' && caret === 0 && editEl.selectionEnd === 0 && editValue && !insert) {
+      // Først i første linje av en del: slå sammen med delen over
+      const lines = song.text.split('\n');
+      const head = lines[idx - 1] !== undefined && LABEL.test(lines[idx - 1]) ? idx - 1 : idx;
+      const above = lines[head - 1];
+      if (above !== undefined && (!above.trim() || head !== idx)) {
+        e.preventDefault();
+        commit();
+        const r = mergeWithAbove(song.text.split('\n'), head);
+        if (r) {
+          setLines((l) => l.splice(0, l.length, ...r.lines));
+          startEdit(r.firstLine, false, undefined, 0);
+        }
+        return;
+      }
+    }
     if (e.key === 'Backspace' && caret === 0 && editEl.selectionEnd === 0 && !editValue) {
       e.preventDefault();
       commit();
@@ -283,6 +299,14 @@
     }
     if (!pen) return;
     setLines((lines) => (lines[idx] = paintWord(lines[idx], i, pen.paint, roles, singers, song.mode)));
+  }
+
+  // ---- Slå sammen deler ----
+  function mergeUp(headIdx: number) {
+    commit();
+    const r = mergeWithAbove(song.text.split('\n'), headIdx);
+    if (r) setLines((l) => l.splice(0, l.length, ...r.lines));
+    menuFor = null;
   }
 
   // ---- Delnavn ----
@@ -328,6 +352,7 @@
   <p class="hint">
     {#if writing}
       Trykk på en linje for å skrive i den. Enter gir ny linje, Enter på en tom linje gir ny del. Tøm en linje for å slette den.
+      ⌫ først i en del slår den sammen med delen over.
     {:else}
       Trykk på ordene, eller dra sidelengs over flere ord. Trykk på et malt ord igjen for å fjerne det.
       {song.mode === 'duett' ? 'Umalt tekst betyr at dere synger sammen.' : song.mode === 'koring' ? 'Umalt tekst er hovedstemmen.' : ''}
@@ -352,7 +377,7 @@
 
   <div class="sheet" class:writing>
     {#if editing?.insert && editing.idx === -1}{@render editor()}{/if}
-    {#each rows as row}
+    {#each rows as row, ri}
       {#if row.kind === 'gap'}
         <div class="gap"></div>
       {:else if row.kind === 'head'}
@@ -360,6 +385,9 @@
           <button type="button" class="head" class:virtual={!row.label} onclick={() => (menuFor = menuFor === row.idx ? null : row.idx)}>
             {row.label || '+ delnavn'} ▾
           </button>
+          {#if ri > 0}
+            <button type="button" class="merge" title="Slå sammen med delen over" onclick={() => mergeUp(row.idx)}>⤒ Slå sammen med delen over</button>
+          {/if}
           {#if menuFor === row.idx}
             <div class="menu">
               {#each NAMES as n}
@@ -473,6 +501,15 @@
     border-color: #333;
     text-transform: none;
     letter-spacing: 0;
+  }
+  .merge {
+    background: transparent;
+    border: 1px dashed #333;
+    min-height: 34px;
+    padding: 2px 10px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-left: 6px;
   }
   .menu {
     position: absolute;

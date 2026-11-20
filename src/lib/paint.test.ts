@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flattenSectionWho, lineToTokens, paintWord, readLabel, reconcile, setWordPen, toPlain, tokensToLine, wordHasPen, writeLabel } from './paint';
+import { flattenSectionWho, lineToTokens, mergeWithAbove, paintWord, readLabel, reconcile, setWordPen, toPlain, tokensToLine, wordHasPen, writeLabel } from './paint';
 import { parseSong, vocalKind } from './parser';
 import type { Singer } from './types';
 
@@ -160,5 +160,19 @@ describe('ren tekst i tekstfeltet', () => {
     expect(reconcile(text, plain, r, singers, 'koring')).toBe(
       '[Refreng]\nJeg står {/K1+K2: her ennå}\n{K1: hele linjen}\n\n[Bro]\nny linje\nsiste {K1: ja}',
     );
+  });
+});
+
+describe('slå sammen deler', () => {
+  it('fjerner skillet og delnavnet på delen under', () => {
+    const r = mergeWithAbove(['[Vers 1]', 'a', 'b', '', '[Vers 2]', 'c'], 4);
+    expect(r).toEqual({ lines: ['[Vers 1]', 'a', 'b', 'c'], firstLine: 3 });
+  });
+  it('del uten navn', () => {
+    expect(mergeWithAbove(['a', '', '', 'b', 'c'], 3)).toEqual({ lines: ['a', 'b', 'c'], firstLine: 1 });
+  });
+  it('første del har ingenting å slå seg sammen med', () => {
+    expect(mergeWithAbove(['a', 'b'], 0)).toBeNull();
+    expect(mergeWithAbove(['[Intro]', 'a'], 0)).toBeNull();
   });
 });

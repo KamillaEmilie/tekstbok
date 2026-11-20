@@ -257,3 +257,22 @@ export function reconcile(oldText: string, plain: string, roles: Roles, singers:
   });
   return newLines.map((line, li) => (perLine.has(li) ? tokensToLine(perLine.get(li)!) : line)).join('\n');
 }
+
+/**
+ * Slår en del sammen med delen over: fjerner tomme linjer mellom dem og delnavnet på den nederste
+ * delen. headIdx er delnavn-linjen, eller første tekstlinje hvis delen ikke har navn.
+ * Returnerer nye linjer og hvor den første tekstlinjen i den sammenslåtte delen havnet.
+ */
+export function mergeWithAbove(lines: string[], headIdx: number): { lines: string[]; firstLine: number } | null {
+  const out = [...lines];
+  let i = headIdx;
+  if (LABEL.test(out[i] ?? '')) out.splice(i, 1);
+  let removed = 0;
+  while (i - 1 >= 0 && !out[i - 1].trim()) {
+    out.splice(i - 1, 1);
+    i--;
+    removed++;
+  }
+  if (i === 0 || (!removed && !LABEL.test(lines[headIdx] ?? ''))) return null; // ingen del over
+  return { lines: out, firstLine: i };
+}
