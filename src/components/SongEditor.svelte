@@ -245,8 +245,10 @@
         {/each}
       </div>
 
+      <details class="whole" open={!song.text.trim()}>
+        <summary>📋 Lim inn eller rediger hele teksten</summary>
       <label class="f"
-        >Tekst
+        >Hele teksten (uten merking)
         <textarea
           bind:this={ta}
           bind:value={plain}
@@ -271,6 +273,9 @@
       </div>
       <div class="bar">
         <button type="button" onclick={auto}>Del opp automatisk</button>
+      </div>
+      </details>
+      <div class="bar">
         <span style="flex:1"></span>
         <button type="button" class="danger" onclick={remove}>Slett låt</button>
       </div>
@@ -278,7 +283,7 @@
         <summary>Om teksten</summary>
         <p>
           Tom linje gir ny del. Delnavn som <code>[Vers 1]</code>, <code>[Refreng]</code> eller <code>[Instrumental]</code> står på egen
-          linje. <code>[Refreng]</code> blir uthevet. Hvem som synger hva, maler du i teksten ved siden av (eller under).
+          linje. <code>[Refreng]</code> blir uthevet. Med «Skriv» retter du rett i teksten; med penslene maler du hvem som synger.
         </p>
         <p>
           Linjer som starter med «Source:» eller «Songwriters:», og linjer med «lyrics ©», «LyricFind» eller «Musixmatch», fjernes automatisk.
@@ -288,8 +293,8 @@
     </form>
     <aside class="preview">
       <div class="phead">
-        <b>Hvem synger hva</b>
-        <span class="hint">Endringer i teksten vises her med en gang</span>
+        <b>Tekst</b>
+        <span class="hint">Skriv, rett og mal hvem som synger, rett i teksten</span>
       </div>
       <PaintView {song} singers={store.singers} onbefore={applyPlain} onchange={afterPaint} />
     </aside>
@@ -331,6 +336,17 @@
     resize: vertical;
     line-height: 1.45;
     font-size: 1.02rem;
+  }
+  .whole {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 4px 12px 12px;
+  }
+  .whole[open] > summary {
+    margin-bottom: 8px;
   }
   details summary {
     cursor: pointer;

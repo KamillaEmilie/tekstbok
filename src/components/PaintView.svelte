@@ -1,8 +1,9 @@
 <script lang="ts">
   // Malerverktøy: velg pensel og trykk på ord. Delnavn (vers, refreng …) velges over hver del,
   // uavhengig av hvem som synger.
-  import { LABEL, resolveWho, vocalKind, type Who } from '../lib/parser';
-  import { lineToTokens, paintWord, readLabel, setWordPen, wordHasPen, writeLabel, type Paint } from '../lib/paint';
+  import { tick } from 'svelte';
+  import { LABEL, clean, resolveWho, vocalKind, type Who } from '../lib/parser';
+  import { lineToTokens, paintWord, readLabel, reconcile, setWordPen, wordHasPen, writeLabel, type Paint } from '../lib/paint';
   import { barStyle, colorsOf, defaultTogether, korStyle, underlineStyle } from '../lib/vocal';
   import { activeRoles, type RoleCode, type Singer, type Song } from '../lib/types';
 
@@ -19,9 +20,9 @@
   const koringCode = $derived([song.k1 && 'K1', song.k2 && 'K2'].filter(Boolean).join('+'));
 
   // ---- Penser ----
-  type Pen = { key: string; label: string; paint: Paint | null };
+  type Pen = { key: string; label: string; paint: Paint | null; write?: boolean };
   const pens = $derived.by((): Pen[] => {
-    const out: Pen[] = [];
+    const out: Pen[] = [{ key: 'write', label: 'Skriv', paint: null, write: true }];
     if (song.mode === 'duett') {
       for (const c of ['hv', 'hv2'] as const) if (song[c]) out.push({ key: `${c}-solo`, label: `${nameOf(c)} alene`, paint: { code: c.toUpperCase(), harm: false } });
       for (const c of ['hv', 'hv2'] as const) if (song[c]) out.push({ key: `${c}-harm`, label: `${nameOf(c)} · 2. stemme`, paint: { code: c.toUpperCase(), harm: true } });
@@ -36,8 +37,10 @@
     }
     return out;
   });
-  let penKey = $state<string | null>(null);
-  const pen = $derived(pens.find((p) => p.key === penKey) ?? pens[0]);
+  // svelte-ignore state_referenced_locally
+  let penKey = $state<string | null>(song.text.trim() ? null : 'write');
+  const pen = $derived(pens.find((p) => p.key === penKey) ?? pens.find((p) => !p.write) ?? pens[0]);
+  const writing = $derived(!!pen?.write);
 
   // ---- Utseende (samme regler som på scenen) ----
   const whoOf = (p: Paint | null): Who | null =>
@@ -60,7 +63,7 @@
   type Row =
     | { kind: 'head'; idx: number; virtual: boolean; label: string; who: string }
     | { kind: 'line'; idx: number; words: Word[]; color: string | null; bar: string | null; right: boolean }
-    | { kind: 'gap' };
+    | { kind: 'gap'; idx: number };
 
   const rows = $derived.by((): Row[] => {
     const out: Row[] = [];
@@ -70,7 +73,7 @@
     song.text.split('\n').forEach((line, idx) => {
       if (!line.trim()) {
         if (afterLabel) return;
-        if (inSection) out.push({ kind: 'gap' });
+        if (inSection) out.push({ kind: 'gap', idx });
         inSection = false;
         return;
       }
@@ -134,7 +137,7 @@
     setLines((lines) => (lines[idx] = setWordPen(lines[idx], i, pen.paint, on, roles, singers, song.mode)));
   }
   function wordDown(e: PointerEvent, idx: number, i: number) {
-    if (!pen || drag) return;
+    if (!pen || drag || writing) return;
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, idx, i, active: false, on: true, seen: new Set() };
     window.addEventListener('pointermove', dragMove);
     window.addEventListener('pointerup', dragEnd);
@@ -166,9 +169,116 @@
     drag = null;
   }
 
+  // ---- Skriv rett i teksten ----
+  // editing.insert = ny linje som legges inn etter linje idx (idx = -1: helt først).
+  let editing = $state<{ idx: number; insert: boolean } | null>(null);
+  let editValue = $state('');
+  let editEl = $state<HTMLTextAreaElement>();
+  const plainLine = (line: string) =>
+    lineToTokens(line, roles, singers, song.mode)
+      .map((t) => t.w)
+      .join(' ');
+
+  async function focusEdit(caret: number | 'end' = 'end') {
+    await tick();
+    if (!editEl) return;
+    editEl.focus();
+    const c = caret === 'end' ? editValue.length : caret;
+    editEl.setSelectionRange(c, c);
+    grow();
+  }
+  function grow() {
+    if (!editEl) return;
+    editEl.style.height = 'auto';
+    editEl.style.height = editEl.scrollHeight + 'px';
+  }
+  let session = 0;
+  function startEdit(idx: number, insert = false, value?: string, caret: number | 'end' = 'end') {
+    commit();
+    onbefore?.();
+    session++;
+    editing = { idx, insert };
+    editValue = value ?? (insert ? '' : plainLine(song.text.split('\n')[idx] ?? ''));
+    void focusEdit(caret);
+  }
+  /** Lagrer linjen som redigeres. Malingen flyttes over til ordene som fortsatt finnes. */
+  function commit() {
+    if (!editing) return;
+    const { idx, insert } = editing;
+    const v = editValue.replace(/\r/g, '');
+    editing = null;
+    setLines((lines) => {
+      if (insert) {
+        if (v.trim()) lines.splice(idx + 1, 0, ...v.split('\n'));
+      } else if (!v.trim()) lines.splice(idx, 1);
+      else if (v !== plainLine(lines[idx])) lines.splice(idx, 1, ...reconcile(lines[idx], v, roles, singers, song.mode).split('\n'));
+    });
+  }
+  function onEditKey(e: KeyboardEvent) {
+    if (!editing || !editEl) return;
+    const { idx, insert } = editing;
+    const caret = editEl.selectionStart;
+    if (e.key === 'Escape') {
+      editing = null;
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const left = editValue.slice(0, caret);
+      const right = editValue.slice(caret);
+      if (insert && !left.trim()) {
+        // Enter på en tom ny linje: skille mellom deler
+        editing = null;
+        setLines((lines) => lines.splice(idx + 1, 0, ''));
+        startEdit(idx + 1, true, right, 0);
+        return;
+      }
+      if (!insert && !left.trim()) {
+        // Markøren først på linjen: ny linje over
+        editValue = right;
+        commit();
+        startEdit(idx - 1, true, '', 0);
+        return;
+      }
+      editValue = left;
+      commit();
+      startEdit(insert ? idx + 1 : idx, true, right, 0);
+      return;
+    }
+    if (e.key === 'Backspace' && caret === 0 && editEl.selectionEnd === 0 && !editValue) {
+      e.preventDefault();
+      commit();
+      const lines = song.text.split('\n');
+      const prev = insert ? idx : idx - 1;
+      if (prev >= 0 && lines[prev]?.trim() && !LABEL.test(lines[prev])) startEdit(prev);
+    }
+  }
+  /** Når feltet mister fokus: lagre, men bare hvis det fortsatt er samme redigering (ikke en ny linje fra Enter). */
+  function onEditBlur() {
+    const s = session;
+    setTimeout(() => {
+      if (s === session && editing && document.activeElement !== editEl) commit();
+    }, 0);
+  }
+
+  function onEditPaste(e: ClipboardEvent) {
+    const txt = e.clipboardData?.getData('text/plain');
+    if (!txt || !editEl) return;
+    e.preventDefault();
+    const s0 = editEl.selectionStart;
+    const s1 = editEl.selectionEnd;
+    const c = clean(txt);
+    editValue = editValue.slice(0, s0) + c + editValue.slice(s1);
+    void focusEdit(s0 + c.length);
+  }
+
   function tapWord(idx: number, i: number) {
     if (suppressClick) {
       suppressClick = false;
+      return;
+    }
+    if (writing) {
+      startEdit(idx);
       return;
     }
     if (!pen) return;
@@ -198,24 +308,50 @@
 </script>
 
 <div class="paint">
-  {#if pens.length}
-    <div class="pens">
-      {#each pens as p (p.key)}
-        <button type="button" class="pen" class:on={pen?.key === p.key} onclick={() => (penKey = p.key)}>
-          {#if p.paint}<span class="sw" style={penPreview(p)}>Aa</span>{:else}<span class="sw">⌫</span>{/if}
-          {p.label}
-        </button>
-      {/each}
-    </div>
-    <p class="hint">
-      Velg pensel og trykk på ordene, eller dra sidelengs over flere ord. Trykk på et malt ord igjen for å fjerne det.
-      {song.mode === 'duett' ? 'Umalt tekst betyr at dere synger sammen.' : 'Umalt tekst er hovedstemmen.'}
-    </p>
-  {:else}
-    <p class="hint">Solo har ingen andre å male. Velg «Med koring» eller «Duett» over for å få penser.</p>
-  {/if}
+  <div class="pens">
+    {#each pens as p (p.key)}
+      <button
+        type="button"
+        class="pen"
+        class:on={pen?.key === p.key}
+        onpointerdown={(e) => e.preventDefault()}
+        onclick={() => {
+          commit();
+          penKey = p.key;
+        }}
+      >
+        {#if p.write}<span class="sw">✏️</span>{:else if p.paint}<span class="sw" style={penPreview(p)}>Aa</span>{:else}<span class="sw">⌫</span>{/if}
+        {p.label}
+      </button>
+    {/each}
+  </div>
+  <p class="hint">
+    {#if writing}
+      Trykk på en linje for å skrive i den. Enter gir ny linje, Enter på en tom linje gir ny del. Tøm en linje for å slette den.
+    {:else}
+      Trykk på ordene, eller dra sidelengs over flere ord. Trykk på et malt ord igjen for å fjerne det.
+      {song.mode === 'duett' ? 'Umalt tekst betyr at dere synger sammen.' : song.mode === 'koring' ? 'Umalt tekst er hovedstemmen.' : ''}
+    {/if}
+    {#if song.mode === 'solo'}Velg «Med koring» eller «Duett» for å få penser til å merke hvem som synger.{/if}
+  </p>
 
-  <div class="sheet">
+  {#snippet editor()}
+    <textarea
+      class="edit"
+      rows="1"
+      bind:this={editEl}
+      bind:value={editValue}
+      oninput={grow}
+      onkeydown={onEditKey}
+      onpaste={onEditPaste}
+      onblur={onEditBlur}
+      placeholder="Skriv her …"
+      spellcheck="false"
+    ></textarea>
+  {/snippet}
+
+  <div class="sheet" class:writing>
+    {#if editing?.insert && editing.idx === -1}{@render editor()}{/if}
     {#each rows as row}
       {#if row.kind === 'gap'}
         <div class="gap"></div>
@@ -233,8 +369,19 @@
             </div>
           {/if}
         </div>
+      {:else if editing && !editing.insert && editing.idx === row.idx}
+        {@render editor()}
       {:else}
-        <div class="ln" class:barred={!!row.bar} class:right={row.right} style:background-image={row.bar} style:color={row.color}>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="ln"
+          class:barred={!!row.bar}
+          class:right={row.right}
+          style:background-image={row.bar}
+          style:color={row.color}
+          onclick={(e) => writing && e.target === e.currentTarget && startEdit(row.idx)}
+        >
           {#each row.words as t, ti}{#if ti > 0}<span class="sp" style={t.style && row.words[ti - 1].style === t.style ? t.style : ''}
                 >{' '}</span
               >{/if}<span
@@ -252,9 +399,13 @@
             >{/each}
         </div>
       {/if}
+      {#if editing?.insert && editing.idx === row.idx}{@render editor()}{/if}
     {/each}
-    {#if !rows.length}
-      <p class="hint">Ingen tekst ennå. Lim inn eller skriv teksten i tekstfeltet.</p>
+    {#if writing && !editing}
+      <button type="button" class="addline" onclick={() => startEdit(song.text.split('\n').length - 1, true)}>+ Ny linje nederst</button>
+    {/if}
+    {#if !rows.length && !editing}
+      <p class="hint">Ingen tekst ennå. Velg «Skriv» og trykk «+ Ny linje», eller lim inn hele teksten.</p>
     {/if}
   </div>
 </div>
@@ -347,6 +498,30 @@
     background-size: 5px 100%;
     background-repeat: no-repeat;
     padding-left: 0.55em;
+  }
+  .edit {
+    display: block;
+    width: 100%;
+    font: inherit;
+    line-height: inherit;
+    background: #1d1d1d;
+    border: 1px solid var(--acc);
+    border-radius: 6px;
+    padding: 0 0.5em;
+    min-height: 0;
+    resize: none;
+    overflow: hidden;
+    color: var(--fg);
+  }
+  .sheet.writing .ln,
+  .sheet.writing .w {
+    cursor: text;
+  }
+  .addline {
+    margin-top: 10px;
+    font-size: 15px;
+    background: transparent;
+    border-style: dashed;
   }
   .ln.right {
     text-align: right;
