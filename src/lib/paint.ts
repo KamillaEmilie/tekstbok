@@ -196,3 +196,64 @@ export function setWordPen(line: string, index: number, pen: Paint | null, on: b
   if (!pen) return paintWord(line, index, null, roles, singers, mode); // viskelær
   return wordHasPen(line, index, pen, roles, singers, mode) === on ? line : paintWord(line, index, pen, roles, singers, mode);
 }
+
+// ---- Ren tekst i tekstfeltet, maling bevares ----
+
+type Entry = { kind: 'raw'; line: string } | { kind: 'words'; toks: Token[] };
+
+function entries(text: string, roles: Roles, singers: Singer[], mode?: VocalMode): Entry[] {
+  return text.split('\n').map((line) =>
+    !line.trim() || LABEL.test(line) ? { kind: 'raw', line } : { kind: 'words', toks: lineToTokens(line, roles, singers, mode) },
+  );
+}
+
+/** Teksten uten koder: det du ser og skriver i tekstfeltet. Delnavn-linjer står som de er. */
+export function toPlain(text: string, roles: Roles, singers: Singer[], mode?: VocalMode): string {
+  return entries(text, roles, singers, mode)
+    .map((e) => (e.kind === 'raw' ? e.line : e.toks.map((t) => t.w).join(' ')))
+    .join('\n');
+}
+
+const wnorm = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
+
+/**
+ * Lager ny tekst fra det som er skrevet i tekstfeltet, og flytter malingen over til ordene som
+ * fortsatt finnes (ordene matches i rekkefølge, så endringer et sted ikke forskyver resten).
+ */
+export function reconcile(oldText: string, plain: string, roles: Roles, singers: Singer[], mode?: VocalMode): string {
+  const oldWords: Token[] = [];
+  for (const e of entries(oldText, roles, singers, mode)) if (e.kind === 'words') oldWords.push(...e.toks);
+  const newLines = plain.split('\n');
+  const newWords: { li: number; w: string }[] = [];
+  newLines.forEach((line, li) => {
+    if (!line.trim() || LABEL.test(line)) return;
+    for (const w of line.split(/\s+/).filter(Boolean)) newWords.push({ li, w });
+  });
+  // Lengste felles delsekvens på ordnivå
+  const n = oldWords.length;
+  const m = newWords.length;
+  const a = oldWords.map((t) => wnorm(t.w));
+  const b = newWords.map((t) => wnorm(t.w));
+  const dp: Uint16Array[] = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const paintFor: (Paint | null)[] = new Array(m).fill(null);
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      paintFor[j] = oldWords[i].paint;
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
+    else j++;
+  }
+  // Bygg linjene på nytt
+  const perLine = new Map<number, Token[]>();
+  newWords.forEach((nw, k) => {
+    const arr = perLine.get(nw.li) ?? [];
+    arr.push({ w: nw.w, paint: paintFor[k] });
+    perLine.set(nw.li, arr);
+  });
+  return newLines.map((line, li) => (perLine.has(li) ? tokensToLine(perLine.get(li)!) : line)).join('\n');
+}

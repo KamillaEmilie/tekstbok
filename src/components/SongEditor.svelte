@@ -5,11 +5,10 @@
   import { undoable } from '../lib/toast.svelte';
   import { autoSplit, clean } from '../lib/parser';
   import { keepAwake } from '../lib/wake';
-  import { LAYOUT_NAMES, MODE_NAMES, MODE_ROLES, activeRoles, type Layout, type RoleCode, type VocalMode } from '../lib/types';
-  import Lyrics from './Lyrics.svelte';
+  import { LAYOUT_NAMES, MODE_NAMES, MODE_ROLES, activeRoles, type Layout, type VocalMode } from '../lib/types';
   import PaintView from './PaintView.svelte';
   import { lookupDuration } from '../lib/importText';
-  import { flattenSectionWho } from '../lib/paint';
+  import { flattenSectionWho, reconcile, toPlain } from '../lib/paint';
 
   let { id }: { id: string } = $props();
   const song = $derived(songById(id));
@@ -20,6 +19,7 @@
     timer = setTimeout(() => song && saveSong(song), 350);
   }
   function flush() {
+    applyPlain();
     if (timer) {
       clearTimeout(timer);
       timer = undefined;
@@ -34,13 +34,42 @@
 
   let ta = $state<HTMLTextAreaElement>();
 
-  // Gammel merking av hele deler («[Vers | Siri]») gjøres om til maling på ordene når du maler.
+  // ---- Tekstfeltet viser ren tekst (uten koder); malingen ligger i song.text og bevares ----
+  const plainOf = () => (song ? toPlain(song.text, activeRoles(song), store.singers, song.mode) : '');
+  // svelte-ignore state_referenced_locally
+  let plain = $state(plainOf());
+  let plainDirty = false;
+  let plainTimer: ReturnType<typeof setTimeout> | undefined;
+  function onPlainInput() {
+    plainDirty = true;
+    clearTimeout(plainTimer);
+    plainTimer = setTimeout(applyPlain, 250);
+  }
+  /** Skriver det som står i tekstfeltet inn i låten, og flytter malingen over til ordene. */
+  function applyPlain() {
+    clearTimeout(plainTimer);
+    if (!song || !plainDirty) return;
+    plainDirty = false;
+    const next = reconcile(song.text, plain, activeRoles(song), store.singers, song.mode);
+    if (next !== song.text) {
+      song.text = next;
+      touch();
+    }
+  }
+  /** Etter maling (f.eks. nytt delnavn): oppdater tekstfeltet. */
+  function afterPaint() {
+    plain = plainOf();
+    touch();
+  }
+
+  // Gammel merking av hele deler («[Vers | Siri]») gjøres om til maling på ordene.
   $effect(() => {
-    if (tab !== 'paint' || !song) return;
+    if (!song) return;
     const f = flattenSectionWho(song.text, activeRoles(song), store.singers, song.mode);
     if (f !== null) {
       song.text = f;
       saveSong(song);
+      plain = plainOf();
     }
   });
 
@@ -71,9 +100,6 @@
     if (song && !song.duration?.trim() && song.title.trim().length >= 2) durTimer = setTimeout(() => fetchDuration(), 1500);
     return () => clearTimeout(durTimer);
   });
-  /** «Mal» er standard når låten har tekst; «Rediger tekst» for å lime inn og rette ord. */
-  // svelte-ignore state_referenced_locally
-  let tab = $state<'paint' | 'text'>(songById(id)?.text.trim() ? 'paint' : 'text');
 
   function setMode(m: VocalMode) {
     if (!song) return;
@@ -87,7 +113,7 @@
   }
 
 
-  /** Delnavn kan settes inn fra tekstfeltet. Hvem som synger males under «Mal hvem som synger». */
+  /** Delnavn kan settes inn fra tekstfeltet. Hvem som synger males i teksten ved siden av. */
   const buttons: [string, string][] = ['Intro', 'Vers', 'Pre-refreng', 'Refreng', 'Bro', 'Solo', 'Instrumental', 'Outro'].map((n) => [`[${n}]`, n]);
 
   // Husk siste markering i tekstfeltet (på iPad kan et trykk på en knapp fjerne fokus).
@@ -100,46 +126,20 @@
     return () => document.removeEventListener('selectionchange', remember);
   });
 
-  /** Pakker markert tekst inn i «{K1: …}», linje for linje, med mellomrom utenfor klammene. */
-  function wrapSelection(code: string, text: string): string {
-    return text
-      .split('\n')
-      .map((line) => {
-        const m = line.match(/^(\s*)(.*?)(\s*)$/)!;
-        return m[2] ? `${m[1]}{${code}: ${m[2]}}${m[3]}` : line;
-      })
-      .join('\n');
-  }
-
   async function insert(v: string) {
     if (!song || !ta) return;
-    const t = song.text;
+    const t = plain;
     const focused = document.activeElement === ta;
     const s = focused ? ta.selectionStart : Math.min(sel.s, t.length);
     const e = focused ? ta.selectionEnd : Math.min(sel.e, t.length);
-    let next: string;
-    let caret: number;
-    if (v.startsWith('(') && e > s) {
-      // Markerte ord: merk bare dem.
-      const code = v.slice(1, v.indexOf(')'));
-      const wrapped = wrapSelection(code, t.slice(s, e));
-      next = t.slice(0, s) + wrapped + t.slice(e);
-      caret = s + wrapped.length;
-    } else if (v.startsWith('[')) {
-      // Delmerke på egen linje, med tom linje foran.
-      const before = t.slice(0, s);
-      const pre = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : '';
-      const ins = pre + v + '\n';
-      next = t.slice(0, s) + ins + t.slice(e);
-      caret = s + ins.length;
-    } else {
-      // Linjemerke først på linjen der markøren står.
-      const ls = t.lastIndexOf('\n', s - 1) + 1;
-      next = t.slice(0, ls) + v + t.slice(ls);
-      caret = s + v.length;
-    }
-    song.text = next;
-    touch();
+    // Delnavn på egen linje, med tom linje foran.
+    const before = t.slice(0, s);
+    const pre = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : '';
+    const ins = pre + v + '\n';
+    plain = t.slice(0, s) + ins + t.slice(e);
+    const caret = s + ins.length;
+    onPlainInput();
+    applyPlain();
     await tick();
     ta.focus();
     ta.setSelectionRange(caret, caret);
@@ -151,18 +151,20 @@
     if (!txt) return;
     e.preventDefault();
     const c = clean(txt);
-    const s = ta.selectionStart ?? song.text.length;
+    const s = ta.selectionStart ?? plain.length;
     const en = ta.selectionEnd ?? s;
-    song.text = song.text.slice(0, s) + c + song.text.slice(en);
-    touch();
+    plain = plain.slice(0, s) + c + plain.slice(en);
+    onPlainInput();
+    applyPlain();
     await tick();
     ta.setSelectionRange(s + c.length, s + c.length);
   }
 
   function auto() {
     if (!song) return;
-    song.text = autoSplit(song.text);
-    touch();
+    plain = autoSplit(plain);
+    onPlainInput();
+    applyPlain();
   }
 
   function remove() {
@@ -243,24 +245,22 @@
         {/each}
       </div>
 
-      <div class="bar tabs">
-        <button type="button" class:on={tab === 'paint'} onclick={() => (tab = 'paint')}>🖌 Mal hvem som synger</button>
-        <button type="button" class:on={tab === 'text'} onclick={() => (tab = 'text')}>✏️ Rediger tekst</button>
-      </div>
-      {#if tab === 'paint'}
-        <PaintView {song} singers={store.singers} onchange={touch} />
-      {:else}
       <label class="f"
         >Tekst
         <textarea
           bind:this={ta}
-          bind:value={song.text}
+          bind:value={plain}
+          oninput={onPlainInput}
           onpaste={onPaste}
           onselect={remember}
           onkeyup={remember}
           onpointerup={remember}
-          onblur={() => ta && (sel = { s: ta.selectionStart, e: ta.selectionEnd })}
-          placeholder="Lim inn eller skriv teksten her" spellcheck="false"
+          onblur={() => {
+            if (ta) sel = { s: ta.selectionStart, e: ta.selectionEnd };
+            applyPlain();
+          }}
+          placeholder="Lim inn eller skriv teksten her"
+          spellcheck="false"
         ></textarea>
       </label>
       <div class="bar">
@@ -269,7 +269,6 @@
           <button type="button" onpointerdown={(e) => e.preventDefault()} onclick={() => insert(v)}>{label}</button>
         {/each}
       </div>
-      {/if}
       <div class="bar">
         <button type="button" onclick={auto}>Del opp automatisk</button>
         <span style="flex:1"></span>
@@ -279,7 +278,7 @@
         <summary>Om teksten</summary>
         <p>
           Tom linje gir ny del. Delnavn som <code>[Vers 1]</code>, <code>[Refreng]</code> eller <code>[Instrumental]</code> står på egen
-          linje. <code>[Refreng]</code> blir uthevet. Hvem som synger hva, merker du under «Mal hvem som synger».
+          linje. <code>[Refreng]</code> blir uthevet. Hvem som synger hva, maler du i teksten ved siden av (eller under).
         </p>
         <p>
           Linjer som starter med «Source:» eller «Songwriters:», og linjer med «lyrics ©», «LyricFind» eller «Musixmatch», fjernes automatisk.
@@ -289,12 +288,10 @@
     </form>
     <aside class="preview">
       <div class="phead">
-        <b>Forhåndsvisning</b>
-        <span class="hint">{LAYOUT_NAMES[song.layout]}</span>
+        <b>Hvem synger hva</b>
+        <span class="hint">Endringer i teksten vises her med en gang</span>
       </div>
-      <div class="pbody" class:cols2={song.layout !== 'scroll'}>
-        <Lyrics {song} singers={store.singers} />
-      </div>
+      <PaintView {song} singers={store.singers} onbefore={applyPlain} onchange={afterPaint} />
     </aside>
   </div>
 {/if}
@@ -330,7 +327,7 @@
     font-size: 0.75rem;
   }
   textarea {
-    min-height: 45vh;
+    min-height: 35vh;
     resize: vertical;
     line-height: 1.45;
     font-size: 1.02rem;
@@ -351,13 +348,5 @@
     gap: 10px;
     align-items: baseline;
     margin-bottom: 12px;
-  }
-  .pbody {
-    font-size: 21px;
-  }
-  .pbody.cols2 :global(.lyr) {
-    column-count: 2;
-    column-gap: 28px;
-    font-size: 16px;
   }
 </style>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flattenSectionWho, lineToTokens, paintWord, readLabel, setWordPen, tokensToLine, wordHasPen, writeLabel } from './paint';
+import { flattenSectionWho, lineToTokens, paintWord, readLabel, reconcile, setWordPen, toPlain, tokensToLine, wordHasPen, writeLabel } from './paint';
 import { parseSong, vocalKind } from './parser';
 import type { Singer } from './types';
 
@@ -137,5 +137,28 @@ describe('koring: hovedstemmen er hvit, 2. stemme erstatter gammel merking', () 
     expect(wordHasPen(line, 1, pen, r, singers, 'koring')).toBe(true);
     for (const i of [0, 1]) line = setWordPen(line, i, pen, false, r, singers, 'koring');
     expect(line).toBe('a b {/K1: c}');
+  });
+});
+
+describe('ren tekst i tekstfeltet', () => {
+  const r = { hv: 'l', k1: 'k', k2: 's' };
+  const text = '[Refreng]\nJeg står {/K1+K2: her ennå}\n(K1) hele linjen\n\nsiste {K1: ja}';
+  it('viser teksten uten koder', () => {
+    expect(toPlain(text, r, singers, 'koring')).toBe('[Refreng]\nJeg står her ennå\nhele linjen\n\nsiste ja');
+  });
+  it('uendret ren tekst gir samme maling', () => {
+    expect(reconcile(text, toPlain(text, r, singers, 'koring'), r, singers, 'koring')).toBe(
+      '[Refreng]\nJeg står {/K1+K2: her ennå}\n{K1: hele linjen}\n\nsiste {K1: ja}',
+    );
+  });
+  it('retting av ett ord beholder malingen på resten', () => {
+    const plain = '[Refreng]\nJeg står fortsatt her ennå\nhele linjen\n\nsiste ja';
+    expect(reconcile(text, plain, r, singers, 'koring')).toBe('[Refreng]\nJeg står fortsatt {/K1+K2: her ennå}\n{K1: hele linjen}\n\nsiste {K1: ja}');
+  });
+  it('nye linjer og delnavn blir med, umalt', () => {
+    const plain = '[Refreng]\nJeg står her ennå\nhele linjen\n\n[Bro]\nny linje\nsiste ja';
+    expect(reconcile(text, plain, r, singers, 'koring')).toBe(
+      '[Refreng]\nJeg står {/K1+K2: her ennå}\n{K1: hele linjen}\n\n[Bro]\nny linje\nsiste {K1: ja}',
+    );
   });
 });

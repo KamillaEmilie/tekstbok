@@ -6,7 +6,12 @@
   import { barStyle, colorsOf, defaultTogether, korStyle, underlineStyle } from '../lib/vocal';
   import { activeRoles, type RoleCode, type Singer, type Song } from '../lib/types';
 
-  let { song, singers, onchange }: { song: Song; singers: Singer[]; onchange: () => void } = $props();
+  let {
+    song,
+    singers,
+    onchange,
+    onbefore,
+  }: { song: Song; singers: Singer[]; onchange: () => void; onbefore?: () => void } = $props();
 
   const roles = $derived(activeRoles(song));
   const nameOf = (code: RoleCode) => singers.find((s) => s.id === song[code])?.name || code.toUpperCase();
@@ -107,6 +112,7 @@
   });
 
   function setLines(fn: (lines: string[]) => void) {
+    onbefore?.(); // ta med det som er skrevet i tekstfeltet først
     const lines = song.text.split('\n');
     fn(lines);
     song.text = lines.join('\n');
@@ -248,7 +254,7 @@
       {/if}
     {/each}
     {#if !rows.length}
-      <p class="hint">Ingen tekst ennå. Trykk «Rediger tekst» og lim inn teksten først.</p>
+      <p class="hint">Ingen tekst ennå. Lim inn eller skriv teksten i tekstfeltet.</p>
     {/if}
   </div>
 </div>
