@@ -97,7 +97,12 @@ export function paintWord(line: string, index: number, pen: Paint | null, roles:
   const cur = toks[index].paint;
   const parts = cur && splitCombined(cur);
   let next: Paint | null;
-  if (pen?.harm && cur?.harm) {
+  if (pen?.harm && mode !== 'duett') {
+    // Med koring betyr 2. stemme at hovedstemmen synger melodien: bare strekene beholdes.
+    const have = cur?.harm ? cur.code : parts ? parts[1] : '';
+    const set = have ? toggleCodes(have, pen.code) : pen.code;
+    next = set ? { code: set, harm: true } : null;
+  } else if (pen?.harm && cur?.harm) {
     // Flere på 2. stemme: legg til eller fjern denne personen
     const set = toggleCodes(cur.code, pen.code);
     next = set ? { code: set, harm: true } : null;
@@ -169,4 +174,25 @@ export function flattenSectionWho(text: string, roles: Roles, singers: Singer[],
     lines[i] = tokensToLine(toks);
   }
   return changed ? lines.join('\n') : null;
+}
+
+/** Har ordet allerede det pensen gir? (brukes når man drar over flere ord) */
+export function wordHasPen(line: string, index: number, pen: Paint | null, roles: Roles, singers: Singer[], mode?: VocalMode): boolean {
+  const t = lineToTokens(line, roles, singers, mode)[index];
+  if (!t) return false;
+  if (!pen) return !t.paint;
+  const cur = t.paint;
+  if (!cur) return false;
+  if (pen.harm) {
+    const have = cur.harm ? cur.code : (splitCombined(cur)?.[1] ?? '');
+    const codes = have.split('+').map((x) => x.trim().toUpperCase());
+    return pen.code.split('+').every((c) => codes.includes(c.trim().toUpperCase()));
+  }
+  return samePaint(cur, pen);
+}
+
+/** Setter (on) eller fjerner (!on) pensen på ett ord, uten å veksle. */
+export function setWordPen(line: string, index: number, pen: Paint | null, on: boolean, roles: Roles, singers: Singer[], mode?: VocalMode): string {
+  if (!pen) return paintWord(line, index, null, roles, singers, mode); // viskelær
+  return wordHasPen(line, index, pen, roles, singers, mode) === on ? line : paintWord(line, index, pen, roles, singers, mode);
 }

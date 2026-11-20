@@ -178,6 +178,9 @@ export type VocalKind = 'solo' | 'together' | 'kor' | 'harm' | 'none';
 export function vocalKind(who: Who | null, mode: VocalMode | undefined, roles: Partial<Record<RoleCode, string>>): VocalKind {
   if (!who) return 'none';
   if (!who.people.length) return who.harmony.length ? 'harm' : 'none';
+  // Med solo/koring er hovedvokalen alene standarden og vises hvit (eventuelt med 2. stemme under).
+  if (mode !== 'duett' && who.people.length === 1 && who.people[0].id && who.people[0].id === roles.hv)
+    return who.harmony.length ? 'harm' : 'none';
   const lead = (p: Person) => !!p.id && (p.id === roles.hv || p.id === roles.hv2);
   if (mode === 'koring' && !who.people.some(lead)) return 'kor';
   return who.people.length > 1 ? 'together' : 'solo';

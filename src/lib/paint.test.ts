@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { flattenSectionWho, lineToTokens, paintWord, readLabel, tokensToLine, writeLabel } from './paint';
+import { flattenSectionWho, lineToTokens, paintWord, readLabel, setWordPen, tokensToLine, wordHasPen, writeLabel } from './paint';
+import { parseSong, vocalKind } from './parser';
 import type { Singer } from './types';
 
 const singers: Singer[] = [
@@ -112,5 +113,29 @@ describe('flere på 2. stemme', () => {
     line = paintWord(line, 0, { code: 'HV', harm: true }, { hv: 'k', hv2: 's', k1: 'l' }, singers, 'duett');
     line = paintWord(line, 0, { code: 'K1', harm: true }, { hv: 'k', hv2: 's', k1: 'l' }, singers, 'duett');
     expect(line).toBe('{HV2/HV+K1: ord}');
+  });
+});
+
+describe('koring: hovedstemmen er hvit, 2. stemme erstatter gammel merking', () => {
+  const r = { hv: 'l', k1: 'k', k2: 's' };
+  it('2. stemme på ord merket «alle» gir bare strekene', () => {
+    let line = '{HV+K1+K2: for jeg er}';
+    line = paintWord(line, 0, { code: 'K1', harm: true }, r, singers, 'koring');
+    line = paintWord(line, 0, { code: 'K2', harm: true }, r, singers, 'koring');
+    expect(line).toBe('{/K1+K2: for} {HV+K1+K2: jeg er}');
+  });
+  it('gammel blanding som «HV+K1+K2/K1+K2» vises som 2. stemme, ikke grønn Leif', () => {
+    const p = parseSong('{HV+K1+K2/K1+K2: ord}', r, singers, 'koring');
+    const part = p.sections[0].lines[0].parts[0];
+    expect(vocalKind(part.who, 'koring', r)).toBe('harm');
+  });
+  it('dra over flere ord: setter uten å veksle', () => {
+    const pen = { code: 'K1', harm: true };
+    let line = 'a {/K1: b} c';
+    for (const i of [0, 1, 2]) line = setWordPen(line, i, pen, true, r, singers, 'koring');
+    expect(line).toBe('{/K1: a b c}');
+    expect(wordHasPen(line, 1, pen, r, singers, 'koring')).toBe(true);
+    for (const i of [0, 1]) line = setWordPen(line, i, pen, false, r, singers, 'koring');
+    expect(line).toBe('a b {/K1: c}');
   });
 });

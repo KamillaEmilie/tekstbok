@@ -2,7 +2,7 @@
   // Malerverktøy: velg pensel og trykk på ord. Delnavn (vers, refreng …) velges over hver del,
   // uavhengig av hvem som synger.
   import { LABEL, resolveWho, vocalKind, type Who } from '../lib/parser';
-  import { lineToTokens, paintWord, readLabel, samePaint, writeLabel, type Paint } from '../lib/paint';
+  import { lineToTokens, paintWord, readLabel, setWordPen, wordHasPen, writeLabel, type Paint } from '../lib/paint';
   import { barStyle, colorsOf, defaultTogether, korStyle, underlineStyle } from '../lib/vocal';
   import { activeRoles, type RoleCode, type Singer, type Song } from '../lib/types';
 
@@ -112,7 +112,59 @@
     song.text = lines.join('\n');
     onchange();
   }
+  // ---- Dra over flere ord ----
+  // Start sidelengs på et ord og dra: alle ordene du drar over males (eller viskes ut hvis det første
+  // ordet allerede hadde pensen). Starter du rett opp/ned, scroller siden som vanlig (touch-action: pan-y).
+  type Drag = { id: number; x: number; y: number; idx: number; i: number; active: boolean; on: boolean; seen: Set<string> };
+  let drag: Drag | null = null;
+  let suppressClick = false;
+
+  function applyDrag(idx: number, i: number) {
+    if (!drag || !pen) return;
+    const key = `${idx}:${i}`;
+    if (drag.seen.has(key)) return;
+    drag.seen.add(key);
+    const on = drag.on;
+    setLines((lines) => (lines[idx] = setWordPen(lines[idx], i, pen.paint, on, roles, singers, song.mode)));
+  }
+  function wordDown(e: PointerEvent, idx: number, i: number) {
+    if (!pen || drag) return;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, idx, i, active: false, on: true, seen: new Set() };
+    window.addEventListener('pointermove', dragMove);
+    window.addEventListener('pointerup', dragEnd);
+    window.addEventListener('pointercancel', dragEnd);
+  }
+  function dragMove(e: PointerEvent) {
+    if (!drag || e.pointerId !== drag.id || !pen) return;
+    if (!drag.active) {
+      const dx = Math.abs(e.clientX - drag.x);
+      const dy = Math.abs(e.clientY - drag.y);
+      if (dx < 10) {
+        if (dy > 12) dragEnd(); // vertikal bevegelse = scrolling
+        return;
+      }
+      drag.active = true;
+      const line = song.text.split('\n')[drag.idx] ?? '';
+      drag.on = pen.paint ? !wordHasPen(line, drag.i, pen.paint, roles, singers, song.mode) : true;
+      applyDrag(drag.idx, drag.i);
+    }
+    e.preventDefault();
+    const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>('[data-w]');
+    if (el) applyDrag(Number(el.dataset.idx), Number(el.dataset.i));
+  }
+  function dragEnd() {
+    window.removeEventListener('pointermove', dragMove);
+    window.removeEventListener('pointerup', dragEnd);
+    window.removeEventListener('pointercancel', dragEnd);
+    if (drag?.active) suppressClick = true;
+    drag = null;
+  }
+
   function tapWord(idx: number, i: number) {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     if (!pen) return;
     setLines((lines) => (lines[idx] = paintWord(lines[idx], i, pen.paint, roles, singers, song.mode)));
   }
@@ -150,7 +202,7 @@
       {/each}
     </div>
     <p class="hint">
-      Velg pensel og trykk på ordene. Trykk på et malt ord igjen for å fjerne det.
+      Velg pensel og trykk på ordene, eller dra sidelengs over flere ord. Trykk på et malt ord igjen for å fjerne det.
       {song.mode === 'duett' ? 'Umalt tekst betyr at dere synger sammen.' : 'Umalt tekst er hovedstemmen.'}
     </p>
   {:else}
@@ -179,7 +231,17 @@
         <div class="ln" class:barred={!!row.bar} class:right={row.right} style:background-image={row.bar} style:color={row.color}>
           {#each row.words as t, ti}{#if ti > 0}<span class="sp" style={t.style && row.words[ti - 1].style === t.style ? t.style : ''}
                 >{' '}</span
-              >{/if}<span class="w" style={t.style} role="button" tabindex="-1" onclick={() => tapWord(row.idx, t.i)} onkeydown={() => {}}
+              >{/if}<span
+                class="w"
+                style={t.style}
+                role="button"
+                tabindex="-1"
+                data-w
+                data-idx={row.idx}
+                data-i={t.i}
+                onpointerdown={(e) => wordDown(e, row.idx, t.i)}
+                onclick={() => tapWord(row.idx, t.i)}
+                onkeydown={() => {}}
               >{t.w}</span
             >{/each}
         </div>
@@ -290,10 +352,9 @@
   }
   .w {
     cursor: pointer;
-    border-radius: 4px;
+    touch-action: pan-y;
     -webkit-user-select: none;
     user-select: none;
-    touch-action: manipulation;
   }
   .w:active {
     outline: 2px solid rgba(255, 201, 74, 0.5);
